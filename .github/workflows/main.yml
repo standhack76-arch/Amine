@@ -40,18 +40,15 @@ jobs:
       - name: configuring remote desktop
         run: |
           echo "setting up user credentials..."
-          # The /y handles the "password too long" prompt automatically
           net user runneradmin "${{ github.event.inputs.password }}" /y
           
-          echo "ensuring admin rights..."
-          # The '2>$null' prevents error 1378 from stopping the script
-          net localgroup administrators runneradmin /add 2>$null
-          
           echo "configuring registry and firewall..."
-          set-itemproperty -path 'hklm:\system\currentcontrolset\control\terminal server' -name "fdenytsconnections" -value 0
-          enable-netfirewallrule -displaygroup "remote desktop"
-          set-itemproperty -path 'hklm:\system\currentcontrolset\control\terminal server\winstations\rdp-tcp' -name "userauthentication" -value 1
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -value 1
+          
           echo "rdp protocol enabled."
+          exit 0
 
       - name: maintaining connection
         run: |
