@@ -19,6 +19,8 @@ jobs:
           echo "downloading tailscale..."
           invoke-webrequest -uri 'https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe' -outfile 'tailscale.exe'
           start-process -filepath "tailscale.exe" -argumentlist "/quiet" -wait
+          echo "waiting for service to initialize..."
+          start-sleep -seconds 5
           echo "tailscale setup complete."
 
       - name: authenticating tailscale
