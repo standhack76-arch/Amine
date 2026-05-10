@@ -40,8 +40,13 @@ jobs:
       - name: configuring remote desktop
         run: |
           echo "setting up user credentials..."
-          net user runneradmin "${{ github.event.inputs.password }}" /add
-          net localgroup administrators runneradmin /add
+          # The /y handles the "password too long" prompt automatically
+          net user runneradmin "${{ github.event.inputs.password }}" /y
+          
+          echo "ensuring admin rights..."
+          # The '2>$null' prevents error 1378 from stopping the script
+          net localgroup administrators runneradmin /add 2>$null
+          
           echo "configuring registry and firewall..."
           set-itemproperty -path 'hklm:\system\currentcontrolset\control\terminal server' -name "fdenytsconnections" -value 0
           enable-netfirewallrule -displaygroup "remote desktop"
