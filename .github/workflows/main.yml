@@ -1,0 +1,52 @@
+name: github rdp tailscale edition
+on:
+  workflow_dispatch:
+    inputs:
+      password:
+        description: 'set rdp password'
+        required: true
+        default: 'ataybna3na32026'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: initializing environment
+        run: echo "starting server deployment..."
+
+      - name: installing tailscale
+        run: |
+          echo "downloading tailscale..."
+          invoke-webrequest -uri 'https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe' -outfile 'tailscale.exe'
+          start-process -filepath "tailscale.exe" -argumentlist "/quiet" -wait
+          echo "tailscale setup complete."
+
+      - name: authenticating tailscale
+        run: |
+          echo "linking to tailscale network..."
+          & "c:\program files\tailscale\tailscale.exe" up --authkey ${{ secrets.tailscale_auth }} --hostname cloud-rdp-server
+          echo "authentication successful."
+
+      - name: configuring remote desktop
+        run: |
+          echo "setting up user credentials..."
+          net user runneradmin "${{ github.event.inputs.password }}"
+          echo "configuring registry and firewall..."
+          set-itemproperty -path 'hklm:\system\currentcontrolset\control\terminal server' -name "fdenytsconnections" -value 0
+          enable-netfirewallrule -displaygroup "remote desktop"
+          set-itemproperty -path 'hklm:\system\currentcontrolset\control\terminal server\winstations\rdp-tcp' -name "userauthentication" -value 1
+          echo "rdp protocol enabled."
+
+      - name: maintaining connection
+        run: |
+          echo "=========================================="
+          echo "server is live"
+          echo "username: runneradmin"
+          echo "password: ${{ github.event.inputs.password }}"
+          echo "internal ip address:"
+          & "c:\program files\tailscale\tailscale.exe" ip -4
+          echo "=========================================="
+          while ($true) {
+            echo "keep-alive: $(get-date)"
+            start-sleep -seconds 300
+          }
