@@ -5,7 +5,7 @@ on:
       password:
         description: 'set rdp password'
         required: true
-        default: 'ataybna3na32026'
+        default: 'Atay@Bna3na3#2026'
 
 jobs:
   build:
@@ -26,14 +26,22 @@ jobs:
       - name: authenticating tailscale
         run: |
           echo "linking to tailscale network..."
-          # using ts_key secret and explicit flags
           & "c:\program files\tailscale\tailscale.exe" up --authkey=${{ secrets.TS_KEY }} --hostname=cloud-rdp-server --accept-routes
           echo "authentication successful."
+
+      - name: disabling password policy
+        run: |
+          echo "killing windows password complexity requirements..."
+          secedit /export /cfg config.inf
+          (get-content config.inf) -replace 'PasswordComplexity = 1', 'PasswordComplexity = 0' | set-content config.inf
+          secedit /configure /db $env:temp\temp.sdb /cfg config.inf /areas SECURITYPOLICY
+          echo "policy disabled."
 
       - name: configuring remote desktop
         run: |
           echo "setting up user credentials..."
-          net user runneradmin "${{ github.event.inputs.password }}"
+          net user runneradmin "${{ github.event.inputs.password }}" /add
+          net localgroup administrators runneradmin /add
           echo "configuring registry and firewall..."
           set-itemproperty -path 'hklm:\system\currentcontrolset\control\terminal server' -name "fdenytsconnections" -value 0
           enable-netfirewallrule -displaygroup "remote desktop"
