@@ -19,14 +19,15 @@ jobs:
           echo "downloading tailscale..."
           invoke-webrequest -uri 'https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe' -outfile 'tailscale.exe'
           start-process -filepath "tailscale.exe" -argumentlist "/quiet" -wait
-          echo "waiting for service to initialize..."
-          start-sleep -seconds 5
+          echo "waiting for service..."
+          start-sleep -seconds 15
           echo "tailscale setup complete."
 
       - name: authenticating tailscale
         run: |
           echo "linking to tailscale network..."
-          & "c:\program files\tailscale\tailscale.exe" up --authkey ${{ secrets.tailscale_auth }} --hostname cloud-rdp-server
+          # using ts_key secret and explicit flags
+          & "c:\program files\tailscale\tailscale.exe" up --authkey=${{ secrets.TS_KEY }} --hostname=cloud-rdp-server --accept-routes
           echo "authentication successful."
 
       - name: configuring remote desktop
