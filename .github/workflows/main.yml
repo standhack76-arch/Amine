@@ -275,13 +275,28 @@ jobs:
           sudo systemctl stop ollama 2>/dev/null || true
           export OLLAMA_HOST="${OLLAMA_HOST}"
           OLLAMA_KEEP_ALIVE="${OLLAMA_KEEP_ALIVE}" OLLAMA_READ_TIMEOUT="${OLLAMA_READ_TIMEOUT}" ollama serve > /var/log/zygor/ollama.log 2>&1 &
-          for i in $(seq 1 60); do
+
+          # Wait for Ollama to be fully ready with extended timeout
+          echo "[*] Waiting for Ollama to start (up to 120 seconds)..."
+          for i in $(seq 1 120); do
             if curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
               echo "[+] Ollama ready after ${i}s"
+              sleep 2  # Extra time for server to fully initialize
               break
             fi
-            sleep 2
+            if [ $((i % 10)) -eq 0 ]; then
+              echo "[*] Still waiting... ${i}s"
+            fi
+            sleep 1
           done
+
+          # Verify Ollama is responding
+          if ! curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
+            echo "[-] ERROR: Ollama did not start properly"
+            tail -50 /var/log/zygor/ollama.log
+            exit 1
+          fi
+          echo "[✓] Ollama server online and responsive"
 
       - name: "Disk Health Check & Aggressive Cleanup (CRITICAL)"
         shell: bash
@@ -426,6 +441,7 @@ jobs:
         id: ai_status
         shell: bash
         run: |
+          set -euo pipefail
           FINAL_MODEL="$(echo '${{ steps.pull_model.outputs.final_model }}')"
           MODEL_STATUS="${{ steps.pull_model.outputs.pulled }}"
 
@@ -442,72 +458,141 @@ jobs:
           fi
 
           echo "[+] AI Model: $FINAL_MODEL"
+          export AI_MODEL="$FINAL_MODEL"  # CRITICAL: Export for ai_complete script
 
-          # Verify model is actually available in Ollama
-          MAX_RETRIES=5
-          for i in $(seq 1 $MAX_RETRIES); do
-            if curl -s http://localhost:11434/api/tags | grep -q "$FINAL_MODEL"; then
-              echo "[✓] Model verified in Ollama: $FINAL_MODEL"
+          # Verify model is actually available in Ollama (with retries)
+          echo "[*] Verifying model in Ollama..."
+          MAX_VERIFY_ATTEMPTS=15
+          for i in $(seq 1 $MAX_VERIFY_ATTEMPTS); do
+            MODEL_LIST=$(curl -s http://localhost:11434/api/tags 2>/dev/null | jq '.models[] .name' -r 2>/dev/null || echo "")
+            if echo "$MODEL_LIST" | grep -q "^${FINAL_MODEL}$"; then
+              echo "[✓] Model verified in Ollama: $FINAL_MODEL (attempt $i/$MAX_VERIFY_ATTEMPTS)"
+              sleep 2
               break
             fi
-            if [ $i -lt $MAX_RETRIES ]; then
-              echo "[*] Model not yet loaded, waiting... ($i/$MAX_RETRIES)"
-              sleep 2
+            if [ $i -lt $MAX_VERIFY_ATTEMPTS ]; then
+              echo "[*] Model not yet fully loaded, waiting... ($i/$MAX_VERIFY_ATTEMPTS)"
+              sleep 3
             else
-              echo "[-] ERROR: Model not found after $MAX_RETRIES checks"
+              echo "[-] ERROR: Model not found after $MAX_VERIFY_ATTEMPTS attempts"
+              echo "[DEBUG] Model list:"
+              curl -s http://localhost:11434/api/tags | jq '.models' 2>/dev/null || echo "Could not get model list"
               echo "ok=false" >> $GITHUB_OUTPUT
               exit 1
             fi
           done
 
-          # Create ai_complete script
+          # Create ai_complete script with ROBUST error handling
           cat > /opt/zygor/bin/ai_complete << 'AICOMPLETE_EOF'
           #!/bin/bash
           set -euo pipefail
+
           PROMPT="$(cat -)"
           MAX_TOKENS="${1:-64}"
+          TIMEOUT="${2:-30}"
+          MAX_RETRIES="${3:-3}"
+
+          # Use provided AI_MODEL or fall back to env var
           AI_MODEL="${AI_MODEL:-phi-3:3.8b-mini-instruct-q4_0}"
-          TIMEOUT="${2:-5}"
 
           if [ "$AI_MODEL" = "none" ] || [ -z "$AI_MODEL" ]; then
-            echo "ERROR: No AI model available. Please check Ollama server."
+            echo "ERROR: No AI model configured"
             exit 1
           fi
 
-          # Try query with timeout
-          RESPONSE=$(timeout $TIMEOUT curl -s -X POST http://localhost:11434/api/generate \
-            -d "$(jq -n \
-              --arg model "$AI_MODEL" \
-              --arg prompt "$PROMPT" \
-              '{model:$model, prompt:$prompt, stream:false, keep_alive:-1, options:{num_predict:'$MAX_TOKENS', temperature:0.3, repeat_penalty:1.1, top_p:0.9}}' \
-            )" \
-            --max-time $((TIMEOUT - 1)) 2>/dev/null) || RESPONSE=""
+          # Retry logic with exponential backoff
+          for attempt in $(seq 1 $MAX_RETRIES); do
+            # Execute query with explicit error handling
+            RESPONSE=$(curl -s -X POST http://localhost:11434/api/generate \
+              --connect-timeout 5 \
+              --max-time $TIMEOUT \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"model\": \"$AI_MODEL\",
+                \"prompt\": \"$PROMPT\",
+                \"stream\": false,
+                \"keep_alive\": \"24h\",
+                \"options\": {
+                  \"num_predict\": $MAX_TOKENS,
+                  \"temperature\": 0.3,
+                  \"repeat_penalty\": 1.1,
+                  \"top_p\": 0.9
+                }
+              }" 2>/dev/null) || RESPONSE=""
 
-          if echo "$RESPONSE" | jq -e '.response' >/dev/null 2>&1; then
-            echo "$RESPONSE" | jq -r '.response'
-            exit 0
-          fi
+            # Validate JSON response
+            if [ -n "$RESPONSE" ]; then
+              # Check if response contains .response field
+              if echo "$RESPONSE" | jq -e '.response' >/dev/null 2>&1; then
+                echo "$RESPONSE" | jq -r '.response'
+                exit 0
+              fi
+            fi
 
-          if [ -z "$RESPONSE" ]; then
-            echo "ERROR: AI query timeout (>${TIMEOUT}s). Check Ollama server."
-          else
-            echo "ERROR: AI returned invalid response. Check model configuration."
-          fi
+            # If we got here, attempt failed
+            if [ $attempt -lt $MAX_RETRIES ]; then
+              BACKOFF=$((attempt * 3))
+              echo "[Retry $attempt/$MAX_RETRIES in ${BACKOFF}s]" >&2
+              sleep $BACKOFF
+            fi
+          done
+
+          # All retries exhausted
+          echo "ERROR: Failed to get response from model after $MAX_RETRIES attempts"
           exit 1
           AICOMPLETE_EOF
 
           chmod +x /opt/zygor/bin/ai_complete
           sudo cp /opt/zygor/bin/ai_complete /usr/local/bin/ai_complete
 
-          # Test ai_complete
-          TEST_RESPONSE=$(/opt/zygor/bin/ai_complete <<< "Say HELLO" 2>&1 | head -1) || TEST_RESPONSE="ERROR"
-          if echo "$TEST_RESPONSE" | grep -iq "error"; then
+          # Export AI_MODEL for subshells
+          export AI_MODEL="$FINAL_MODEL"
+
+          # === WARMUP PHASE ===
+          echo "[*] Warmup Phase: Preparing model for inference..."
+          WARMUP_ATTEMPTS=3
+          for wu_attempt in $(seq 1 $WARMUP_ATTEMPTS); do
+            echo "[*] Warmup attempt $wu_attempt/$WARMUP_ATTEMPTS (60s timeout)..."
+            
+            # Execute warmup with exported AI_MODEL
+            if timeout 65 bash -c "export AI_MODEL='$FINAL_MODEL'; echo 'Hello' | /opt/zygor/bin/ai_complete 8 30 1" >/dev/null 2>&1; then
+              echo "[✓] Warmup successful"
+              sleep 2
+              break
+            else
+              if [ $wu_attempt -lt $WARMUP_ATTEMPTS ]; then
+                echo "[-] Warmup attempt $wu_attempt failed, retrying in 5s..."
+                sleep 5
+              fi
+            fi
+          done
+
+          # === FINAL VALIDATION ===
+          echo "[*] Final Validation: Testing AI query..."
+          TEST_RESPONSE=""
+
+          # Run test with explicit environment
+          TEST_RESPONSE=$(timeout 50 bash -c "export AI_MODEL='$FINAL_MODEL'; echo 'Say OK' | /opt/zygor/bin/ai_complete 4 40 2" 2>&1) || TEST_RESPONSE="QUERY_FAILED"
+
+          if echo "$TEST_RESPONSE" | grep -iq "error\|failed"; then
             echo "[-] AI test FAILED: $TEST_RESPONSE"
+            echo "[-] Debugging Info:"
+            echo "    AI_MODEL: $AI_MODEL"
+            echo "    FINAL_MODEL: $FINAL_MODEL"
+            echo "    Ollama Health:"
+            curl -s http://localhost:11434/api/tags | jq '.' 2>/dev/null | head -20 || echo "Could not fetch Ollama status"
             echo "ok=false" >> $GITHUB_OUTPUT
             exit 1
           fi
 
-          echo "[+] AI engine ready. Test response: ${TEST_RESPONSE:0:100}"
+          # Success
+          if [ -z "$TEST_RESPONSE" ]; then
+            echo "[!] Warning: Empty response, but no error"
+            TEST_RESPONSE="(empty response, but query succeeded)"
+          fi
+
+          echo "[✓] AI engine ready and responding"
+          echo "[+] Test response: ${TEST_RESPONSE:0:80}..."
           echo "ok=true" >> $GITHUB_OUTPUT
 
       - name: "Set Telegram flag"
