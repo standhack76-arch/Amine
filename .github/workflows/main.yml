@@ -1,65 +1,744 @@
-name: github rdp tailscale edition
+name: "Telegram Ollama Mega AI Session"
+
 on:
   workflow_dispatch:
     inputs:
-      password:
-        description: 'set rdp password'
+      model:
+        description: "Ollama model. Small models are safest on GitHub runners."
         required: true
-        default: 'Atay@Bna3na3#2026'
+        default: "qwen2.5:1.5b"
+      session_minutes:
+        description: "Bot lifetime minutes. Keep under 350 for GitHub hosted runners."
+        required: true
+        default: "330"
+      prompt_mode:
+        description: "default, coder, or creator"
+        required: true
+        default: "default"
+      allow_edits:
+        description: "true or false. Enables /write and /append safe edits."
+        required: true
+        default: "false"
+      max_scan_files:
+        description: "Maximum files for /files and project scans."
+        required: true
+        default: "120"
+      commit_changes:
+        description: "Commit safe edits/outputs after session ends."
+        required: true
+        default: "false"
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: telegram-ollama-session
+  cancel-in-progress: false
 
 jobs:
-  build:
-    runs-on: windows-latest
+  telegram-ollama:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      OLLAMA_MODEL: ${{ inputs.model }}
+      SESSION_MINUTES: ${{ inputs.session_minutes }}
+      PROMPT_MODE: ${{ inputs.prompt_mode }}
+      ALLOW_EDITS: ${{ inputs.allow_edits }}
+      MAX_SCAN_FILES: ${{ inputs.max_scan_files }}
+      PYTHONUNBUFFERED: "1"
     steps:
-      - name: initializing environment
-        run: echo "starting server deployment..."
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: installing tailscale
-        run: |
-          echo "downloading tailscale..."
-          invoke-webrequest -uri 'https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe' -outfile 'tailscale.exe'
-          start-process -filepath "tailscale.exe" -argumentlist "/quiet" -wait
-          echo "waiting for service..."
-          start-sleep -seconds 15
-          echo "tailscale setup complete."
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-      - name: authenticating tailscale
+      - name: Create one-file project structure
+        shell: bash
         run: |
-          echo "linking to tailscale network..."
-          & "c:\program files\tailscale\tailscale.exe" up --authkey=${{ secrets.TS_KEY }} --hostname=cloud-rdp-server --accept-routes
-          echo "authentication successful."
-
-      - name: disabling password policy
-        run: |
-          echo "killing windows password complexity requirements..."
-          secedit /export /cfg config.inf
-          (get-content config.inf) -replace 'PasswordComplexity = 1', 'PasswordComplexity = 0' | set-content config.inf
-          secedit /configure /db $env:temp\temp.sdb /cfg config.inf /areas SECURITYPOLICY
-          echo "policy disabled."
-
-      - name: configuring remote desktop
-        run: |
-          echo "setting up user credentials..."
-          net user runneradmin "${{ github.event.inputs.password }}" /y
+          set -euo pipefail
+          mkdir -p scripts prompts memory outputs logs
+          cat > scripts/telegram_sender.py <<'PYFILE'
+          #!/usr/bin/env python3
+          import os, time, json, requests
+          from pathlib import Path
           
-          echo "configuring registry and firewall..."
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -value 1
+          BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN','').strip()
+          CHAT_ID = os.getenv('TELEGRAM_CHAT_ID','').strip()
+          API = f'https://api.telegram.org/bot{BOT_TOKEN}' if BOT_TOKEN else ''
           
-          echo "rdp protocol enabled."
-          exit 0
+          MAX_LEN = 3900
+          
+          def enabled():
+              return bool(BOT_TOKEN and CHAT_ID)
+          
+          def _post(method, data=None, files=None, timeout=60):
+              if not enabled():
+                  return {'ok': False, 'description': 'Telegram secrets missing'}
+              url = f'{API}/{method}'
+              for attempt in range(3):
+                  try:
+                      r = requests.post(url, data=data, files=files, timeout=timeout)
+                      try:
+                          j = r.json()
+                      except Exception:
+                          j = {'ok': False, 'description': r.text[:500]}
+                      if j.get('ok'):
+                          return j
+                      if r.status_code == 429:
+                          wait = int(j.get('parameters',{}).get('retry_after', 3))
+                          time.sleep(wait)
+                      else:
+                          time.sleep(1 + attempt)
+                  except Exception as e:
+                      if attempt == 2:
+                          return {'ok': False, 'description': str(e)}
+                      time.sleep(1 + attempt)
+              return {'ok': False, 'description': 'request failed'}
+          
+          def send_message(text, parse_mode='Markdown'):
+              if not text:
+                  return None
+              results = []
+              chunks = [text[i:i+MAX_LEN] for i in range(0, len(text), MAX_LEN)] or ['']
+              for chunk in chunks:
+                  payload = {'chat_id': CHAT_ID, 'text': chunk, 'disable_web_page_preview': 'true'}
+                  if parse_mode:
+                      payload['parse_mode'] = parse_mode
+                  res = _post('sendMessage', data=payload)
+                  if not res.get('ok') and parse_mode:
+                      payload.pop('parse_mode', None)
+                      res = _post('sendMessage', data=payload)
+                  results.append(res)
+                  time.sleep(0.15)
+              return results[-1] if results else None
+          
+          def send_document(path, caption=''):
+              p = Path(path)
+              if not p.exists() or not p.is_file():
+                  return {'ok': False, 'description': f'File not found: {path}'}
+              with p.open('rb') as f:
+                  return _post('sendDocument', data={'chat_id': CHAT_ID, 'caption': caption[:1000]}, files={'document': (p.name, f)})
+          
+          def send_photo(path, caption=''):
+              p = Path(path)
+              if not p.exists() or not p.is_file():
+                  return {'ok': False, 'description': f'File not found: {path}'}
+              with p.open('rb') as f:
+                  return _post('sendPhoto', data={'chat_id': CHAT_ID, 'caption': caption[:1000]}, files={'photo': (p.name, f)})
+          PYFILE
+          chmod +x scripts/telegram_sender.py
 
-      - name: maintaining connection
-        run: |
-          echo "=========================================="
-          echo "server is live"
-          echo "username: runneradmin"
-          echo "password: ${{ github.event.inputs.password }}"
-          echo "internal ip address:"
-          & "c:\program files\tailscale\tailscale.exe" ip -4
-          echo "=========================================="
-          while ($true) {
-            echo "keep-alive: $(get-date)"
-            start-sleep -seconds 300
+          cat > scripts/safe_file_editor.py <<'PYFILE'
+          #!/usr/bin/env python3
+          import os, re, shutil, fnmatch, hashlib
+          from pathlib import Path
+          from datetime import datetime
+          
+          BLOCKED_DIRS = {'.git','node_modules','dist','build','.next','.nuxt','vendor','venv','.venv','env','.env','__pycache__','.terraform','.serverless','.cache','.pytest_cache'}
+          BLOCKED_NAMES = {'.env','.env.local','.env.production','.npmrc','.pypirc','credentials.json','secrets.json','secrets.yml','secrets.yaml','id_rsa','id_ed25519'}
+          BLOCKED_EXTS = {'.exe','.dll','.so','.dylib','.bin','.jpg','.jpeg','.png','.gif','.webp','.mp4','.mp3','.wav','.mov','.zip','.tar','.gz','.7z','.pdf','.db','.sqlite','.sqlite3','.pfx','.pem','.key'}
+          SAFE_EXTS = {'.py','.js','.ts','.jsx','.tsx','.html','.css','.scss','.sass','.json','.yaml','.yml','.toml','.md','.txt','.rst','.sh','.go','.rs','.java','.kt','.cpp','.c','.h','.hpp','.vue','.svelte','.astro','.xml','.ini','.cfg','.conf','.gitignore','.dockerfile',''}
+          SENSITIVE_PATTERNS = [r'(?i)(password|api[_-]?key|secret|token|private[_-]?key)\s*[:=]', r'sk-[A-Za-z0-9]{20,}', r'ghp_[A-Za-z0-9]{36}', r'AKIA[0-9A-Z]{16}']
+          
+          class SafeFileEditor:
+              def __init__(self, base_dir='.'):
+                  self.base_dir = Path(base_dir).resolve()
+                  self.backup_dir = self.base_dir / 'outputs' / 'backups'
+                  self.backup_dir.mkdir(parents=True, exist_ok=True)
+                  self.log = []
+          
+              def resolve(self, file_path):
+                  return (self.base_dir / file_path).resolve()
+          
+              def is_blocked(self, file_path):
+                  raw = str(file_path).replace('\\','/')
+                  p = self.resolve(raw)
+                  if not str(p).startswith(str(self.base_dir)):
+                      return True, 'path traversal outside repository'
+                  rel = p.relative_to(self.base_dir)
+                  parts = set(rel.parts)
+                  bad = parts & BLOCKED_DIRS
+                  if bad:
+                      return True, f'blocked directory: {sorted(bad)[0]}'
+                  if p.name in BLOCKED_NAMES:
+                      return True, f'blocked file name: {p.name}'
+                  for pattern in BLOCKED_NAMES:
+                      if '*' in pattern and fnmatch.fnmatch(p.name, pattern):
+                          return True, f'blocked file pattern: {pattern}'
+                  if p.suffix.lower() in BLOCKED_EXTS:
+                      return True, f'blocked extension: {p.suffix}'
+                  if p.name.startswith('.') and p.name not in {'.gitignore','.gitattributes','.editorconfig'} and '.github' not in rel.parts:
+                      return True, f'hidden file blocked: {p.name}'
+                  return False, ''
+          
+              def contains_sensitive(self, content):
+                  sample = content[:250000]
+                  for pat in SENSITIVE_PATTERNS:
+                      if re.search(pat, sample):
+                          return True, 'sensitive credential-like pattern detected'
+                  return False, ''
+          
+              def read_file(self, file_path, max_bytes=200000):
+                  blocked, reason = self.is_blocked(file_path)
+                  if blocked:
+                      return None, f'Blocked: {reason}'
+                  p = self.resolve(file_path)
+                  if not p.exists():
+                      return None, 'File not found'
+                  if not p.is_file():
+                      return None, 'Not a file'
+                  if p.stat().st_size > max_bytes:
+                      return None, f'File too large: {p.stat().st_size} bytes'
+                  try:
+                      return p.read_text(encoding='utf-8', errors='replace'), None
+                  except Exception as e:
+                      return None, str(e)
+          
+              def write_file(self, file_path, content, backup=True):
+                  blocked, reason = self.is_blocked(file_path)
+                  if blocked:
+                      return False, f'Write blocked: {reason}'
+                  sensitive, reason = self.contains_sensitive(content)
+                  if sensitive:
+                      return False, f'Write blocked: {reason}'
+                  p = self.resolve(file_path)
+                  try:
+                      p.parent.mkdir(parents=True, exist_ok=True)
+                      if backup and p.exists():
+                          stamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+                          rel = p.relative_to(self.base_dir).as_posix().replace('/','__')
+                          backup_path = self.backup_dir / f'{rel}.{stamp}.bak'
+                          shutil.copy2(p, backup_path)
+                      p.write_text(content, encoding='utf-8')
+                      self.log.append({'action':'write','file':str(p.relative_to(self.base_dir)),'bytes':len(content),'time':datetime.utcnow().isoformat()})
+                      return True, f'Saved {p.relative_to(self.base_dir)}'
+                  except Exception as e:
+                      return False, str(e)
+          
+              def append_file(self, file_path, content):
+                  old, err = self.read_file(file_path, max_bytes=500000)
+                  if err and err != 'File not found':
+                      return False, err
+                  return self.write_file(file_path, (old or '') + content)
+          
+              def list_files(self, max_files=200, max_depth=5):
+                  files=[]
+                  for p in self.base_dir.rglob('*'):
+                      if len(files) >= max_files: break
+                      if not p.is_file(): continue
+                      try:
+                          rel = p.relative_to(self.base_dir)
+                      except Exception:
+                          continue
+                      if len(rel.parts) > max_depth: continue
+                      blocked,_ = self.is_blocked(rel.as_posix())
+                      if blocked: continue
+                      files.append(rel.as_posix())
+                  return sorted(files)
+          
+              def project_stats(self):
+                  files = self.list_files(max_files=1000, max_depth=8)
+                  exts, size = {}, 0
+                  for f in files:
+                      p = self.resolve(f)
+                      ext = p.suffix.lower() or 'no_ext'
+                      exts[ext] = exts.get(ext,0)+1
+                      try: size += p.stat().st_size
+                      except Exception: pass
+                  return {'files':len(files),'size_kb':round(size/1024,1),'extensions':dict(sorted(exts.items(), key=lambda x:-x[1])[:15])}
+          
+              def build_context(self, max_files=40, max_chars=60000):
+                  chunks=[]; total=0
+                  for f in self.list_files(max_files=max_files, max_depth=6):
+                      text, err = self.read_file(f, max_bytes=80000)
+                      if err or text is None: continue
+                      slice_text = text[:4000]
+                      block = f'\n--- FILE: {f} ---\n{slice_text}\n'
+                      if total + len(block) > max_chars: break
+                      chunks.append(block); total += len(block)
+                  return ''.join(chunks)
+          
+              def zip_outputs(self):
+                  import zipfile
+                  out = self.base_dir / 'outputs'
+                  out.mkdir(exist_ok=True)
+                  zip_path = out / f'ai_outputs_{datetime.utcnow().strftime("%Y%m%d_%H%M%S")}.zip'
+                  with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
+                      for folder in ['outputs','memory','logs']:
+                          base = self.base_dir / folder
+                          if base.exists():
+                              for p in base.rglob('*'):
+                                  if p.is_file() and p != zip_path:
+                                      z.write(p, p.relative_to(self.base_dir))
+                  return zip_path.as_posix()
+          PYFILE
+          chmod +x scripts/safe_file_editor.py
+
+          cat > scripts/memory_manager.py <<'PYFILE'
+          #!/usr/bin/env python3
+          import json, os
+          from pathlib import Path
+          from datetime import datetime
+          
+          class MemoryManager:
+              def __init__(self, path='memory/conversation.json'):
+                  self.path = Path(path)
+                  self.path.parent.mkdir(parents=True, exist_ok=True)
+                  self.data = {'summary':'','messages':[], 'facts':[], 'created_at': datetime.utcnow().isoformat()}
+                  self.load()
+          
+              def load(self):
+                  if self.path.exists():
+                      try:
+                          self.data.update(json.loads(self.path.read_text(encoding='utf-8')))
+                      except Exception:
+                          pass
+                  return self.data
+          
+              def save(self):
+                  self.data['updated_at'] = datetime.utcnow().isoformat()
+                  self.path.write_text(json.dumps(self.data, ensure_ascii=False, indent=2), encoding='utf-8')
+          
+              def add(self, role, content, meta=None):
+                  self.data.setdefault('messages', []).append({'role': role, 'content': content, 'time': datetime.utcnow().isoformat(), 'meta': meta or {}})
+                  if len(self.data['messages']) > 80:
+                      old = self.data['messages'][:-40]
+                      self.data['summary'] = (self.data.get('summary','') + '\n' + self.simple_summary(old))[-6000:]
+                      self.data['messages'] = self.data['messages'][-40:]
+                  self.save()
+          
+              def simple_summary(self, msgs):
+                  parts=[]
+                  for m in msgs[-30:]:
+                      parts.append(f"{m.get('role')}: {m.get('content','')[:180]}")
+                  return '\n'.join(parts)
+          
+              def context(self, max_messages=20):
+                  lines=[]
+                  if self.data.get('summary'):
+                      lines.append('MEMORY SUMMARY:\n' + self.data['summary'][-3000:])
+                  for m in self.data.get('messages', [])[-max_messages:]:
+                      lines.append(f"{m.get('role','user').upper()}: {m.get('content','')[:1500]}")
+                  return '\n\n'.join(lines)
+          
+              def clear(self):
+                  self.data['messages'] = []
+                  self.data['summary'] = ''
+                  self.save()
+          PYFILE
+          chmod +x scripts/memory_manager.py
+
+          cat > scripts/ollama_manager.py <<'PYFILE'
+          #!/usr/bin/env python3
+          import os, requests, time
+          
+          OLLAMA_BASE = os.getenv('OLLAMA_BASE', 'http://localhost:11434')
+          
+          class OllamaManager:
+              def __init__(self, model=None):
+                  self.model = model or os.getenv('OLLAMA_MODEL','qwen2.5:1.5b')
+          
+              def ready(self):
+                  try:
+                      return requests.get(f'{OLLAMA_BASE}/api/tags', timeout=5).status_code == 200
+                  except Exception:
+                      return False
+          
+              def wait(self, seconds=120):
+                  end = time.time() + seconds
+                  while time.time() < end:
+                      if self.ready(): return True
+                      time.sleep(2)
+                  return False
+          
+              def generate(self, prompt, system='', temperature=0.35, max_tokens=700):
+                  payload = {
+                      'model': self.model,
+                      'prompt': prompt,
+                      'system': system,
+                      'stream': False,
+                      'options': {'temperature': temperature, 'num_predict': max_tokens, 'num_ctx': 8192}
+                  }
+                  try:
+                      r = requests.post(f'{OLLAMA_BASE}/api/generate', json=payload, timeout=180)
+                      if r.status_code != 200:
+                          return f'Ollama error {r.status_code}: {r.text[:500]}'
+                      return r.json().get('response','').strip() or '(empty response)'
+                  except Exception as e:
+                      return f'Ollama connection error: {e}'
+          PYFILE
+          chmod +x scripts/ollama_manager.py
+
+          cat > scripts/bot_controller.py <<'PYFILE'
+          #!/usr/bin/env python3
+          import os, sys, time, json, subprocess, shlex
+          from pathlib import Path
+          from datetime import datetime, timedelta
+          import requests
+          
+          from telegram_sender import send_message, send_document, enabled as telegram_enabled
+          from ollama_manager import OllamaManager
+          from memory_manager import MemoryManager
+          from safe_file_editor import SafeFileEditor
+          
+          BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN','').strip()
+          CHAT_ID = os.getenv('TELEGRAM_CHAT_ID','').strip()
+          API = f'https://api.telegram.org/bot{BOT_TOKEN}'
+          MODEL = os.getenv('OLLAMA_MODEL','qwen2.5:1.5b')
+          ALLOW_EDITS = os.getenv('ALLOW_EDITS','false').lower() == 'true'
+          SESSION_MINUTES = int(os.getenv('SESSION_MINUTES','330'))
+          PROMPT_MODE = os.getenv('PROMPT_MODE','default')
+          MAX_SCAN_FILES = int(os.getenv('MAX_SCAN_FILES','120'))
+          START = time.time()
+          DEADLINE = START + max(5, min(355, SESSION_MINUTES)) * 60
+          
+          Path('outputs').mkdir(exist_ok=True)
+          Path('logs').mkdir(exist_ok=True)
+          Path('memory').mkdir(exist_ok=True)
+          
+          SYSTEM_PROMPTS = {
+          'default': '''You are a powerful AI assistant running inside GitHub Actions with Ollama. Reply for Telegram. Be concise, useful, honest, and action-oriented. You can help with code, projects, ideas, reels, captions, YAML, and safe file work. Never claim true unlimited or 24/7. Never expose secrets.''',
+          'coder': '''You are an expert software engineer and code reviewer. Write correct syntax, secure code, and copy-paste-ready fixes. Explain bugs briefly. Avoid risky actions and protect secrets.''',
+          'creator': '''You are a viral content strategist for reels and short videos. Use Hook -> Problem -> Solution -> CTA. Give bold creative ideas, captions, hashtags, thumbnail text, and realistic monetization angles.'''
           }
+          
+          ollama = OllamaManager(MODEL)
+          mem = MemoryManager()
+          editor = SafeFileEditor('.')
+          
+          def log(msg):
+              line = f'[{datetime.utcnow().isoformat()}] {msg}'
+              print(line, flush=True)
+              with open('logs/bot.log','a',encoding='utf-8') as f: f.write(line+'\n')
+          
+          def tg_get_updates(offset=None, timeout=25):
+              try:
+                  params = {'timeout': timeout, 'allowed_updates': json.dumps(['message'])}
+                  if offset: params['offset'] = offset
+                  r = requests.get(f'{API}/getUpdates', params=params, timeout=timeout+10)
+                  return r.json() if r.ok else {'ok':False, 'description':r.text[:300]}
+              except Exception as e:
+                  return {'ok':False, 'description':str(e)}
+          
+          def remaining_min():
+              return max(0, int((DEADLINE - time.time())/60))
+          
+          def write_output(name, content):
+              stamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+              safe = ''.join(c if c.isalnum() or c in '-_.' else '_' for c in name)[:60]
+              p = Path('outputs') / f'{stamp}_{safe}.md'
+              p.write_text(content, encoding='utf-8')
+              return p
+          
+          def help_text():
+              edit_status = 'ON' if ALLOW_EDITS else 'OFF'
+              return f'''*Telegram Ollama AI Assistant*
+          Model: `{MODEL}` | Edits: `{edit_status}` | Time left: `{remaining_min()} min`
+          
+          Commands:
+          `/help` show commands
+          `/status` session, model, memory
+          `/files` list safe repo files
+          `/read path` read safe file
+          `/project` project report
+          `/idea topic` creative ideas
+          `/reel topic` reel script/caption/hashtags
+          `/thumbnail topic` thumbnail prompts
+          `/hashtags topic` hashtag packs
+          `/analyze path or text` analyze file/text
+          `/fix code or issue` fix code/bug
+          `/write path | content` safe write file if edits enabled
+          `/append path | content` safe append if edits enabled
+          `/zip` zip outputs/memory/logs and send
+          `/clear` clear chat memory
+          `/stop` stop workflow session
+          
+          Natural chat works too. Only your `TELEGRAM_CHAT_ID` is allowed.'''
+          
+          def ask_ai(user_text, mode=None, extra_context='', max_tokens=900):
+              mode = mode or PROMPT_MODE
+              system = SYSTEM_PROMPTS.get(mode, SYSTEM_PROMPTS['default'])
+              context = mem.context(max_messages=18)
+              prompt = f'''Conversation context:
+          {context}
+          
+          Repository/project context:
+          {extra_context}
+          
+          User request:
+          {user_text}
+          
+          Answer now for Telegram. Use Markdown. Be practical and concise.'''
+              answer = ollama.generate(prompt, system=system, max_tokens=max_tokens)
+              mem.add('user', user_text)
+              mem.add('assistant', answer)
+              return answer
+          
+          def handle(text, message=None):
+              raw = text.strip()
+              low = raw.lower()
+              if low in ['/help','help','start','/start']:
+                  return help_text()
+              if low == '/status':
+                  stats = editor.project_stats()
+                  return f'''*Status*
+          Model: `{MODEL}`
+          Ollama ready: `{ollama.ready()}`
+          Time left: `{remaining_min()} min`
+          Edits enabled: `{ALLOW_EDITS}`
+          Memory messages: `{len(mem.data.get('messages', []))}`
+          Project files scanned: `{stats['files']}`
+          Project size: `{stats['size_kb']} KB`
+          Top extensions: `{stats['extensions']}`'''
+              if low == '/files':
+                  files = editor.list_files(max_files=MAX_SCAN_FILES)
+                  return '*Safe files:*\n' + '\n'.join(f'`{f}`' for f in files[:MAX_SCAN_FILES]) if files else 'No safe files found.'
+              if low.startswith('/read '):
+                  path = raw.split(' ',1)[1].strip()
+                  content, err = editor.read_file(path)
+                  if err: return err
+                  return f'*{path}*\n```\n{content[:3500]}\n```'
+              if low == '/project':
+                  ctx = editor.build_context(max_files=min(MAX_SCAN_FILES, 50), max_chars=50000)
+                  return ask_ai('Create a professional project progress report: structure, features, issues, next steps, viral/creative ideas, and what to improve.', 'coder', ctx, 1200)
+              if low.startswith('/idea'):
+                  topic = raw[5:].strip() or 'AI Telegram GitHub Ollama automation'
+                  return ask_ai(f'Generate 10 modern creative project/reel ideas about: {topic}. Include hook, why useful, build difficulty, monetization.', 'creator', '', 1200)
+              if low.startswith('/reel'):
+                  topic = raw[5:].strip() or 'AI assistant from Telegram using GitHub Actions and Ollama'
+                  return ask_ai(f'Create a viral reel package for: {topic}. Include 3 hooks, short script, caption, CTA, hashtags, thumbnail text.', 'creator', '', 1200)
+              if low.startswith('/thumbnail'):
+                  topic = raw[10:].strip() or 'AI automation project'
+                  return ask_ai(f'Create 8 thumbnail concepts and image prompts for: {topic}. Include big text and visual composition.', 'creator', '', 1000)
+              if low.startswith('/hashtags'):
+                  topic = raw[9:].strip() or 'AI coding automation'
+                  return ask_ai(f'Give 40 hashtags for {topic}, grouped by broad, niche, viral, Darija/tech, and low-competition.', 'creator', '', 900)
+              if low.startswith('/analyze '):
+                  target = raw.split(' ',1)[1].strip()
+                  content, err = editor.read_file(target)
+                  ctx = f'File {target}:\n{content}' if not err else target
+                  return ask_ai('Analyze this deeply. Give bugs, improvements, security issues, performance, and next actions.', 'coder', ctx, 1300)
+              if low.startswith('/fix '):
+                  body = raw.split(' ',1)[1]
+                  return ask_ai('Fix/improve this code or issue. Return corrected code when possible:\n' + body, 'coder', '', 1300)
+              if low.startswith('/write '):
+                  if not ALLOW_EDITS: return 'Safe edits are OFF. Run workflow with allow_edits=true.'
+                  rest = raw.split(' ',1)[1]
+                  if '|' not in rest: return 'Use: `/write path/to/file | content`'
+                  path, content = rest.split('|',1)
+                  ok,msg = editor.write_file(path.strip(), content.strip()+'\n')
+                  return msg
+              if low.startswith('/append '):
+                  if not ALLOW_EDITS: return 'Safe edits are OFF. Run workflow with allow_edits=true.'
+                  rest = raw.split(' ',1)[1]
+                  if '|' not in rest: return 'Use: `/append path/to/file | content`'
+                  path, content = rest.split('|',1)
+                  ok,msg = editor.append_file(path.strip(), content.strip()+'\n')
+                  return msg
+              if low == '/zip':
+                  path = editor.zip_outputs()
+                  send_document(path, 'AI outputs ZIP')
+                  return f'Sent ZIP: `{path}`'
+              if low == '/clear':
+                  mem.clear(); return 'Memory cleared.'
+              if low == '/stop':
+                  send_message('Stopping session. Memory/artifacts will be saved by GitHub Actions.')
+                  Path('memory/STOP').write_text('stop', encoding='utf-8')
+                  sys.exit(0)
+              # natural chat with small project context if user asks project/code
+              ctx = ''
+              if any(w in low for w in ['project','repo','file','code','bug','yaml','github','workflow']):
+                  ctx = editor.build_context(max_files=25, max_chars=30000)
+              return ask_ai(raw, PROMPT_MODE, ctx, 900)
+          
+          def main():
+              if not telegram_enabled():
+                  print('TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are required', file=sys.stderr)
+                  return 1
+              if not ollama.wait(180):
+                  send_message('Ollama did not become ready. Check workflow logs.')
+                  return 1
+              send_message(f'🚀 *AI session started*\nModel: `{MODEL}`\nTime: `{SESSION_MINUTES} min`\nType `/help` now.')
+              offset = None
+              warned = False
+              while time.time() < DEADLINE:
+                  if remaining_min() <= 15 and not warned:
+                      warned = True
+                      send_message('⚠️ Session has about 15 minutes left. Use `/zip` to save outputs. Memory will be uploaded as artifact.')
+                  data = tg_get_updates(offset=offset, timeout=25)
+                  if not data.get('ok'):
+                      log('getUpdates failed: ' + data.get('description','unknown'))
+                      time.sleep(5); continue
+                  for upd in data.get('result', []):
+                      offset = upd['update_id'] + 1
+                      msg = upd.get('message') or {}
+                      chat = msg.get('chat', {})
+                      if str(chat.get('id')) != str(CHAT_ID):
+                          continue
+                      text = msg.get('text') or msg.get('caption') or ''
+                      if not text: continue
+                      log('Message: ' + text[:120])
+                      try:
+                          answer = handle(text, msg)
+                          if answer:
+                              p = write_output('last_response', answer)
+                              send_message(answer)
+                      except SystemExit:
+                          raise
+                      except Exception as e:
+                          log('handler error: ' + repr(e))
+                          send_message('Error: `' + str(e)[:800] + '`')
+              send_message('✅ Session ended by time limit. GitHub will upload memory, outputs and logs.')
+              return 0
+          
+          if __name__ == '__main__':
+              raise SystemExit(main())
+          PYFILE
+          chmod +x scripts/bot_controller.py
+
+          cat > scripts/verify_setup.py <<'PYFILE'
+          #!/usr/bin/env python3
+          import os, sys, requests
+          ok = True
+          def check(name, cond, detail=''):
+              global ok
+              ok = ok and bool(cond)
+              print(('✅' if cond else '❌'), name, detail)
+          BOT_TOKEN=os.getenv('TELEGRAM_BOT_TOKEN','')
+          CHAT_ID=os.getenv('TELEGRAM_CHAT_ID','')
+          check('Python 3.9+', sys.version_info >= (3,9), sys.version.split()[0])
+          check('TELEGRAM_BOT_TOKEN exists', ':' in BOT_TOKEN)
+          check('TELEGRAM_CHAT_ID exists', CHAT_ID.lstrip('-').isdigit())
+          if BOT_TOKEN:
+              try:
+                  j=requests.get(f'https://api.telegram.org/bot{BOT_TOKEN}/getMe',timeout=10).json()
+                  check('Telegram token valid', j.get('ok'), j.get('description',''))
+              except Exception as e: check('Telegram API', False, str(e))
+          sys.exit(0 if ok else 1)
+          PYFILE
+          chmod +x scripts/verify_setup.py
+
+          cat > prompts/default.txt <<'PYFILE'
+          You are a powerful Telegram AI assistant running in GitHub Actions with Ollama. Be honest, concise, practical, and creative. Help with coding, projects, YAML, reels, thumbnails, captions, and safe file analysis. Never claim true unlimited or 24/7 when running on GitHub free runners.
+          PYFILE
+
+          cat > prompts/coder.txt <<'PYFILE'
+          You are an expert software engineer and code reviewer. Provide correct, safe, working code. Explain security risks and bugs briefly. Avoid destructive commands and never expose secrets.
+          PYFILE
+
+          cat > prompts/creator.txt <<'PYFILE'
+          You are a viral content creator and strategist. Make hooks that stop the scroll, use Hook Problem Solution CTA, generate captions hashtags thumbnails and monetization angles.
+          PYFILE
+
+          cat > prompts/README.md <<'PYFILE'
+          # Prompts
+          Customize default.txt, coder.txt, and creator.txt to change the assistant behavior. In this one-file workflow, these prompts are generated at runtime.
+          PYFILE
+
+          cat > README.generated.md <<'PYFILE'
+          # Telegram Ollama Mega One-File Workflow
+          
+          This repository can run a temporary Telegram AI assistant using GitHub Actions and Ollama with no paid API.
+          
+          ## Truth
+          - It is not truly unlimited or 24/7.
+          - GitHub-hosted jobs are temporary and normally limited to 6 hours.
+          - Small Ollama models work best on free runners.
+          - Telegram chat works only while the workflow is running.
+          
+          ## Setup
+          1. Create a Telegram bot with BotFather.
+          2. Send any message to your bot.
+          3. Get your chat id from Telegram getUpdates.
+          4. Add repository secrets:
+             - TELEGRAM_BOT_TOKEN
+             - TELEGRAM_CHAT_ID
+          5. Put this file at `.github/workflows/telegram-ollama-mega-session.yml`.
+          6. Enable Actions and run the workflow manually.
+          
+          ## Commands
+          /help, /status, /files, /read, /project, /idea, /reel, /thumbnail, /hashtags, /analyze, /fix, /write, /append, /zip, /clear, /stop.
+          
+          ## Safe edits
+          Edits are disabled by default. Enable allow_edits in workflow inputs. The workflow blocks secrets, .git, node_modules, binary files, env files, and path traversal.
+          PYFILE
+
+          cat > requirements.txt <<'PYFILE'
+          requests==2.31.0
+          httpx==0.25.2
+          psutil==5.9.6
+          rich==13.7.0
+          PYFILE
+
+      - name: Install Python dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify Telegram setup
+        shell: bash
+        run: |
+          python scripts/verify_setup.py
+
+      - name: Install Ollama
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama --version || true
+
+      - name: Start Ollama and pull model
+        shell: bash
+        run: |
+          set -euo pipefail
+          ollama serve > logs/ollama.log 2>&1 &
+          echo $! > logs/ollama.pid
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:11434/api/tags >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          ollama pull "${OLLAMA_MODEL}"
+          ollama list
+
+      - name: Run Telegram AI session
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/bot_controller.py
+
+      - name: Commit changes if enabled
+        if: ${{ always() && inputs.commit_changes == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add outputs memory logs README.generated.md || true
+          if ! git diff --cached --quiet; then
+            git commit -m "AI assistant session outputs"
+            git push
+          else
+            echo "No changes to commit"
+          fi
+
+      - name: Upload memory outputs and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: telegram-ollama-session-${{ github.run_number }}
+          path: |
+            memory/
+            outputs/
+            logs/
+            README.generated.md
+          retention-days: 14
