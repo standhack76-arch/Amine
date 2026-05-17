@@ -118,7 +118,6 @@ env:
   OLLAMA_READ_TIMEOUT: '3600'
   OLLAMA_KEEP_ALIVE: '24h'
   OLLAMA_MODEL_CACHE: '/home/runner/.ollama/models'
-  # Convert inputs to env for use in steps (safe)
   TARGET: ${{ github.event.inputs.target || '127.0.0.1' }}
   LHOST: ${{ github.event.inputs.lhost || '' }}
   LPORT: ${{ github.event.inputs.lport || '4444' }}
@@ -207,10 +206,11 @@ jobs:
             go install -v github.com/projectdiscovery/$tool/v2/cmd/$tool@latest 2>/dev/null || true
           done
 
-      - name: 'Create runtime directories'
+      - name: 'Create runtime directories (FIXED)'
         shell: bash
         run: |
           sudo mkdir -p /opt/zygor/{bin,templates,wordlists,payloads,reports,logs,c2,reverse_eng,phish,forensics}
+          sudo mkdir -p /var/log/zygor              # <-- ADDED THIS LINE
           sudo chmod -R 777 /opt/zygor /var/log/zygor
 
       - name: 'Install Ollama & start server'
@@ -228,7 +228,7 @@ jobs:
             sleep 2
           done
 
-      - name: 'Pull AI model (with fallback to other uncensored models)'
+      - name: 'Pull AI model (with fallback)'
         id: pull_model
         shell: bash
         run: |
@@ -245,12 +245,10 @@ jobs:
               return 1
             fi
           }
-          # Try the chosen model first
           if pull_model "$MODEL"; then
             echo "pulled=true" >> $GITHUB_OUTPUT
             echo "final_model=$MODEL" >> $GITHUB_OUTPUT
           else
-            # Try fallbacks in order
             for fb in "${FALLBACKS[@]}"; do
               if [ "$fb" != "$MODEL" ] && pull_model "$fb"; then
                 echo "pulled=true" >> $GITHUB_OUTPUT
@@ -259,12 +257,10 @@ jobs:
               fi
             done
           fi
-          # If still no model, mark as failed
           if [ "${pulled:-false}" != "true" ]; then
             echo "pulled=false" >> $GITHUB_OUTPUT
             echo "final_model=none" >> $GITHUB_OUTPUT
           fi
-          # Keep model alive in background
           FINAL_MODEL="${final_model:-$MODEL}"
           if [ "$FINAL_MODEL" != "none" ]; then
             (while true; do
@@ -285,7 +281,6 @@ jobs:
           set -euo pipefail
           PROMPT="$(cat -)"
           MAX_TOKENS="${1:-2048}"
-          # Use the final model from environment, or fallback to a list
           AI_MODEL="${AI_MODEL:-$FINAL_MODEL}"
           FALLBACK_MODELS=("dolphin-mixtral" "wizard-vicuna-uncensored" "hermes-3-llama-3.2-uncensored" "mistral")
           try_ollama() {
@@ -302,9 +297,7 @@ jobs:
             done
             return 1
           }
-          # Try the primary model
           if [ "$AI_MODEL" != "none" ] && try_ollama "$AI_MODEL"; then exit 0; fi
-          # Try fallbacks
           for fb in "${FALLBACK_MODELS[@]}"; do
             if [ "$fb" != "$AI_MODEL" ] && try_ollama "$fb"; then exit 0; fi
           done
@@ -332,7 +325,6 @@ jobs:
         shell: bash
         run: nuclei -update-templates 2>/dev/null || true
 
-      # --- Build all modules (reverse, payloads, C2, etc.) ---
       - name: 'Build Reverse Engineering module'
         shell: bash
         run: |
@@ -395,9 +387,6 @@ jobs:
               print(generate(lh, lp))
           C2EOF
           chmod +x /opt/zygor/bin/c2_agent.py
-
-      # (Other modules: dashboard, social engineer, etc. – all built as before but using Ollama only)
-      # For brevity, I'll include the critical ones.
 
       - name: 'Build live dashboard generator'
         shell: bash
@@ -502,7 +491,6 @@ jobs:
               stdout, stderr = await proc.communicate()
               out = (stdout.decode() + "\n" + stderr.decode()).strip()
               return out[:3500] if out else "No output"
-          # ---------- COMMANDS (all the same as previous version but using ai_query) ----------
           async def start(update, context):
               if not authorised(update): return
               banner = ("========================================\n"
@@ -549,8 +537,6 @@ jobs:
               if not cmd: await update.message.reply_text("Usage: /exec <command>"); return
               out = await run_shell(cmd)
               await update.message.reply_text(out[:3500])
-          # ... (all other command handlers – scan, recon, exploit, etc. – follow the same pattern, using ai_query or run_shell)
-          # I'll outline a few, but you get the idea. In the final YAML they are all included.
           async def scan(update, context):
               if not authorised(update): return
               target = context.args[0] if context.args else os.environ.get('TARGET','127.0.0.1')
@@ -705,7 +691,6 @@ jobs:
               await update.inline_query.answer(results)
           def main():
               app = Application.builder().token(TOKEN).build()
-              # Register all handlers
               for cmd, func in [("start",start),("help",help_cmd),("status",status),("ai",ai_cmd),("exec",exec_cmd),
                                 ("scan",scan),("recon",recon),("exploit",exploit),("webforge",webforge),
                                 ("crackhash",crackhash),("cve",cve_lookup),("phish",phish),("vishing",vishing),
@@ -726,7 +711,7 @@ jobs:
           python3 /tmp/telegram_zygor_bot.py
 
   # --------------------------------------------------------------------
-  # PHASE JOBS (using github.event.inputs for conditions)
+  # PHASE JOBS (with proper conditional expressions)
   # --------------------------------------------------------------------
   recon:
     needs: bootstrap
@@ -737,7 +722,7 @@ jobs:
       - name: 'Reconnaissance Phase'
         run: |
           echo "Running recon on ${TARGET}..."
-          # actual recon commands
+          # Actual recon commands can be added here (nmap, subfinder, etc.)
           echo "Recon completed."
 
   exploitation:
