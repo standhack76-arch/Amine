@@ -1,7 +1,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # ZYGOR v4.0 – THE UNCHAINED AUTONOMOUS AI PENTEST & WEB FORGE FRAMEWORK
 # ═══════════════════════════════════════════════════════════════════════════════
-# (Telegram bot logging directory fix included)
+# (Telegram token fallback + clearer error)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 name: ZYGOR v4.0 – The Unchained Autonomous AI Pentest & Web Forge Framework
@@ -680,9 +680,13 @@ jobs:
       - name: '🤖 Launch Telegram Bot (persistent)'
         shell: bash
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_TOKEN }}
         run: |
-          if [ -z "$TELEGRAM_BOT_TOKEN" ]; then echo "No token"; exit 1; fi
+          if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+            echo "❌ TELEGRAM_BOT_TOKEN is empty."
+            echo "   Make sure you have created a secret named TELEGRAM_BOT_TOKEN (or TELEGRAM_TOKEN) in your repository settings."
+            exit 1
+          fi
           cat > /tmp/telegram_zygor_bot.py << 'PYEOF'
           #!/usr/bin/env python3
           import os, subprocess, logging, asyncio
@@ -755,6 +759,12 @@ jobs:
           PYEOF
           chmod +x /tmp/telegram_zygor_bot.py
           python3 /tmp/telegram_zygor_bot.py
+
+  # All remaining jobs are unchanged from the previous massive YAML
+  # (reconnaissance, exploitation, web_forge, social_engineering, ctf_solver,
+  #  cloud_vm_spawner, chat_ops, dashboard_generator, backup_orchestrator,
+  #  executive_report, cleanup)
+  # I'll include them for completeness.
 
   reconnaissance:
     name: '🔍 Phase 1 – Reconnaissance'
@@ -1022,7 +1032,7 @@ jobs:
       - name: '📤 Forward Logs to Telegram (if enabled)'
         shell: bash
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_TOKEN }}
         run: |
           if [ "${TELEGRAM_ENABLE}" = "true" ] && [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
             curl -s -X POST -H "Content-Type: application/json" \
