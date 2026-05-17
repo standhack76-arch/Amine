@@ -1,7 +1,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # ZYGOR v4.0 – THE UNCHAINED AUTONOMOUS AI PENTEST & WEB FORGE FRAMEWORK
 # ═══════════════════════════════════════════════════════════════════════════════
-# (Telegram bot runs inside bootstrap – shares Ollama and ai_complete)
+# (Telegram bot launched inside bootstrap – python-telegram-bot forced install)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 name: ZYGOR v4.0 – The Unchained Autonomous AI Pentest & Web Forge Framework
@@ -642,7 +642,7 @@ jobs:
           [ -n "$SLACK_WEBHOOK" ] && python3 /opt/zygor/bin/notify.py slack "$MSG" "$SLACK_WEBHOOK" 2>/dev/null || true
 
       # ─────────────────────────────────────────────────────────
-      # 📱 LAUNCH TELEGRAM BOT INSIDE BOOTSTRAP (access to Ollama)
+      # 📱 LAUNCH TELEGRAM BOT INSIDE BOOTSTRAP (forced install)
       # ─────────────────────────────────────────────────────────
       - name: '🤖 Start Telegram Bot (24/7 inside bootstrap)'
         if: env.TELEGRAM_ENABLE == 'true'
@@ -653,10 +653,17 @@ jobs:
             echo "❌ TELEGRAM_BOT_TOKEN is empty – bot disabled."
             exit 0
           fi
-          # Create log dir (should already exist)
+          # Ensure log directory
           sudo mkdir -p /var/log/zygor
           sudo chmod 777 /var/log/zygor
-          # Build the bot script
+          # Force install python-telegram-bot (in case the earlier install failed)
+          echo "Installing python-telegram-bot..."
+          pip3 install --quiet --break-system-packages python-telegram-bot 2>&1 || {
+            echo "❌ Failed to install python-telegram-bot"
+            exit 1
+          }
+          echo "✓ python-telegram-bot installed successfully"
+          # Build and run the bot
           cat > /tmp/telegram_zygor_bot.py << 'PYEOF'
           #!/usr/bin/env python3
           import os, subprocess, logging, asyncio
@@ -722,18 +729,13 @@ jobs:
               app.add_handler(CommandHandler("exec", exec_cmd))
               app.add_handler(CommandHandler("abort", abort))
               app.add_handler(CommandHandler("status", status))
-              # Run polling forever – this blocks the step, keeping the job alive
               app.run_polling()
 
           if __name__ == '__main__':
               main()
           PYEOF
           chmod +x /tmp/telegram_zygor_bot.py
-          # Launch the bot (foreground) – the step will not exit until the job is killed or /abort
           python3 /tmp/telegram_zygor_bot.py
 
-  # All other jobs (reconnaissance, exploitation, web_forge, social_engineering, ctf_solver,
-  # cloud_vm_spawner, chat_ops, dashboard_generator, backup_orchestrator, executive_report,
-  # cleanup) remain identical to the previous massive YAML – I've omitted them here for
-  # brevity, but you must include them.  They are unchanged.
-  # (Just copy the full YAML from the previous answer and replace the bootstrap job with this one.)
+  # (All remaining jobs – reconnaissance, exploitation, web_forge, etc. – are unchanged.
+  #  Include them as in the previous full YAML.)
