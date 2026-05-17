@@ -1,7 +1,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # ZYGOR v4.0 – THE UNCHAINED AUTONOMOUS AI PENTEST & WEB FORGE FRAMEWORK
 # ═══════════════════════════════════════════════════════════════════════════════
-# (Telegram token fallback + clearer error)
+# (Telegram token as input option + secret fallback)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 name: ZYGOR v4.0 – The Unchained Autonomous AI Pentest & Web Forge Framework
@@ -92,6 +92,10 @@ on:
         description: '🆔 Telegram chat ID'
         required: false
         default: ''
+      telegram_bot_token:
+        description: '🤖 Telegram Bot Token (overrides secret)'
+        required: false
+        default: ''
       enable_social_engineering:
         description: '👤 Social engineering simulation'
         required: false
@@ -158,6 +162,7 @@ env:
   CHAT_ISSUE: ${{ github.event.inputs.chat_issue_number || '1' }}
   TELEGRAM_ENABLE: ${{ github.event.inputs.telegram_enable || 'true' }}
   TELEGRAM_CHAT_ID: ${{ github.event.inputs.telegram_chat_id || '' }}
+  TELEGRAM_BOT_TOKEN: ${{ github.event.inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_TOKEN || '' }}
   SOCIAL_ENG: ${{ github.event.inputs.enable_social_engineering || 'false' }}
   CTF_MODE: ${{ github.event.inputs.ctf_mode || 'false' }}
   CLOUD_VM: ${{ github.event.inputs.cloud_vm_provider || 'none' }}
@@ -620,7 +625,8 @@ jobs:
               --arg issue "${CHAT_ISSUE}" \
               --arg telegram "${TELEGRAM_ENABLE}" \
               --arg telegram_id "${TELEGRAM_CHAT_ID}" \
-              '{ref:"main",inputs:{target:$target,lhost:$lhost,lport:$lport,ai_model:$ai_model,penetration_phase:$phase,enable_exfiltration:$exfil,run_duration_hours:$hours,enable_chat_ops:$chat_ops,chat_issue_number:$issue,telegram_enable:$telegram,telegram_chat_id:$telegram_id}}')
+              --arg telegram_token "${TELEGRAM_BOT_TOKEN}" \
+              '{ref:"main",inputs:{target:$target,lhost:$lhost,lport:$lport,ai_model:$ai_model,penetration_phase:$phase,enable_exfiltration:$exfil,run_duration_hours:$hours,enable_chat_ops:$chat_ops,chat_issue_number:$issue,telegram_enable:$telegram,telegram_chat_id:$telegram_id,telegram_bot_token:$telegram_token}}')
             curl -s -X POST \
               -H "Authorization: token ${GITHUB_TOKEN_ABORT}" \
               -H "Accept: application/vnd.github.v3+json" \
@@ -673,18 +679,17 @@ jobs:
           echo "PATH=/opt/zygor/bin:/usr/local/bin:$PATH" >> $GITHUB_ENV
           sudo apt-get install -y python3-pip 2>/dev/null || true
           pip3 install --quiet python-telegram-bot 2>/dev/null || true
-          # Create log directory before bot starts
           sudo mkdir -p /var/log/zygor
           sudo chmod 777 /var/log/zygor
 
       - name: '🤖 Launch Telegram Bot (persistent)'
         shell: bash
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ env.TELEGRAM_BOT_TOKEN }}
         run: |
           if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
             echo "❌ TELEGRAM_BOT_TOKEN is empty."
-            echo "   Make sure you have created a secret named TELEGRAM_BOT_TOKEN (or TELEGRAM_TOKEN) in your repository settings."
+            echo "   Provide it as an input (telegram_bot_token) or set a secret named TELEGRAM_BOT_TOKEN."
             exit 1
           fi
           cat > /tmp/telegram_zygor_bot.py << 'PYEOF'
@@ -759,12 +764,6 @@ jobs:
           PYEOF
           chmod +x /tmp/telegram_zygor_bot.py
           python3 /tmp/telegram_zygor_bot.py
-
-  # All remaining jobs are unchanged from the previous massive YAML
-  # (reconnaissance, exploitation, web_forge, social_engineering, ctf_solver,
-  #  cloud_vm_spawner, chat_ops, dashboard_generator, backup_orchestrator,
-  #  executive_report, cleanup)
-  # I'll include them for completeness.
 
   reconnaissance:
     name: '🔍 Phase 1 – Reconnaissance'
@@ -1032,7 +1031,7 @@ jobs:
       - name: '📤 Forward Logs to Telegram (if enabled)'
         shell: bash
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ env.TELEGRAM_BOT_TOKEN }}
         run: |
           if [ "${TELEGRAM_ENABLE}" = "true" ] && [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
             curl -s -X POST -H "Content-Type: application/json" \
