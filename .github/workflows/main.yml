@@ -772,25 +772,331 @@ jobs:
           import os, subprocess, logging, asyncio, hashlib, json, io, time, re, base64, tempfile
           from telegram import Update, InlineQueryResultArticle, InputTextMessageContent, InputFile
           from telegram.ext import Application, CommandHandler, ContextTypes, InlineQueryHandler, MessageHandler, filters
+
           TOKEN = os.environ['TELEGRAM_BOT_TOKEN']
           CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', '')
           ALLOWED = [CHAT_ID] if CHAT_ID else []
           WATERMARK = " @zygorlap"
+          AI_MODEL = os.environ.get('AI_MODEL', 'phi-3:3.8b-mini-instruct-q4_0')
+
           DISCLAIMER = ("DISCLAIMER: Authorised testing only. Unauthorised use illegal.\n"
                         "You assume all responsibility. Watermark: "+WATERMARK)
           logging.basicConfig(filename='/var/log/zygor/telegram_bot.log', level=logging.INFO, format='%(asctime)s - %(message)s')
-          def authorised(update): return not ALLOWED or str(update.effective_chat.id) in ALLOWED
+
+          def authorised(update): 
+              return not ALLOWED or str(update.effective_chat.id) in ALLOWED
+
           async def ai_query(prompt: str) -> str:
-              proc = await asyncio.create_subprocess_exec('/opt/zygor/bin/ai_complete', '2048', stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-              stdout, stderr = await proc.communicate(input=prompt.encode())
-              if stdout: return stdout.decode().strip()
-              elif stderr: return f"AI error: {stderr.decode().strip()[:1500]}"
-              return "AI empty response."
+              """Query AI with proper environment passing"""
+              try:
+                  # CRITICAL: Pass environment with AI_MODEL explicitly
+                  env = os.environ.copy()
+                  env['AI_MODEL'] = AI_MODEL
+                  
+                  proc = await asyncio.create_subprocess_exec(
+                      '/opt/zygor/bin/ai_complete', '2048',
+                      stdin=asyncio.subprocess.PIPE,
+                      stdout=asyncio.subprocess.PIPE,
+                      stderr=asyncio.subprocess.PIPE,
+                      env=env  # PASS ENVIRONMENT HERE
+                  )
+                  
+                  # Use timeout to prevent hanging
+                  try:
+                      stdout, stderr = await asyncio.wait_for(
+                          proc.communicate(input=prompt.encode()),
+                          timeout=45.0
+                      )
+                  except asyncio.TimeoutError:
+                      proc.kill()
+                      return f"AI query timeout (>45s). Model may be overloaded."
+                  
+                  if stdout:
+                      result = stdout.decode().strip()
+                      if result:
+                          return result
+                  if stderr:
+                      err = stderr.decode().strip()
+                      if err and 'error' in err.lower():
+                          return f"AI error: {err[:500]}"
+                  
+                  return "AI returned empty response"
+              except Exception as e:
+                  return f"AI exception: {str(e)[:500]}"
+
           async def run_shell(cmd: str) -> str:
-              proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-              stdout, stderr = await proc.communicate()
-              out = (stdout.decode() + "\n" + stderr.decode()).strip()
-              return out[:3500] if out else "No output"
+              """Execute shell command safely"""
+              try:
+                  proc = await asyncio.create_subprocess_shell(
+                      cmd,
+                      stdout=asyncio.subprocess.PIPE,
+                      stderr=asyncio.subprocess.PIPE,
+                      env=os.environ.copy()
+                  )
+                  try:
+                      stdout, stderr = await asyncio.wait_for(
+                          proc.communicate(),
+                          timeout=30.0
+                      )
+                  except asyncio.TimeoutError:
+                      proc.kill()
+                      return "Command timeout (>30s)"
+                  
+                  out = (stdout.decode() + "\n" + stderr.decode()).strip()
+                  return out[:3500] if out else "No output"
+              except Exception as e:
+                  return f"Shell error: {str(e)[:500]}"
+
+          async def start(update, context):
+              if not authorised(update): return
+              banner = ("========================================\n"
+                        "   ZYGOR v4.0 ULTIMATE (Ollama AI)\n"
+                        "========================================\n"
+                        f"TARGET   : {os.environ.get('TARGET','N/A')}\n"
+                        f"PHASE    : {os.environ.get('PHASE','full')}\n"
+                        f"AI MODEL : {AI_MODEL}\n"
+                        "----------------------------------------\n"
+                        "/help for all commands.\n"
+                        f"Watermark: {WATERMARK}\n"
+                        "========================================\n\n"+DISCLAIMER)
+              await update.message.reply_text(banner)
+
+          async def help_cmd(update, context):
+              if not authorised(update): return
+              text = ("--- ZYGOR COMMANDS ---\n"
+                      "/start - Status & disclaimer\n/help - This list\n/ai <q> - Ask the AI\n/exec <cmd> - Run shell\n"
+                      "/status - System status\n/scan <t> - Nmap + AI\n/recon <d> - Subdomain enum\n/exploit <v> - Exploit PoC\n"
+                      "/webforge <d> - Build web app\n/crackhash <h> - Crack hash\n/cve <id> - CVE lookup\n/phish <t> - Phishing email\n"
+                      "/vishing <s> - Vishing script\n/ctf <c> - CTF solver\n/reverse <file> - Reverse engineer\n"
+                      "/decompile <file> - Decompile\n/disassemble <file> - Disassemble\n/patch <f> <o> <b> - Patch binary\n"
+                      "/poly <lh> <lp> - Poly payload\n/c2 <lh> <lp> - C2 agent\n/persist <m> - Persistence script\n"
+                      "/lateral <t> - Lateral movement\n/pivot <t> - Pivoting guide\n/stego <file> - Stego analysis\n"
+                      "/wireless <iface> - Wi-Fi guide\n/report - Full pentest report\n/upload - Upload file for analysis\n"
+                      "/log - View recent logs\n/dashboard - Dashboard URL\n/abort - Cancel workflow\n/watermark - Show watermark\n"
+                      "/clear - Reset context\nInline: @botname <query>")
+              await update.message.reply_text(text)
+
+          async def status(update, context):
+              if not authorised(update): return
+              msg = (f"TARGET: {os.environ.get('TARGET')}\nPHASE: {os.environ.get('PHASE')}\n"
+                     f"AI MODEL: {AI_MODEL}\nEXFIL: {os.environ.get('ENABLE_EXFIL')}\n"
+                     f"RUN ID: {os.environ.get('GITHUB_RUN_ID')}\nWatermark: {WATERMARK}")
+              await update.message.reply_text(msg)
+
+          async def ai_cmd(update, context):
+              if not authorised(update): return
+              q = ' '.join(context.args)
+              if not q: await update.message.reply_text("Usage: /ai <question>"); return
+              await update.message.reply_text("Thinking...")
+              resp = await ai_query(q)
+              await update.message.reply_text(resp[:4000])
+
+          async def exec_cmd(update, context):
+              if not authorised(update): return
+              cmd = ' '.join(context.args)
+              if not cmd: await update.message.reply_text("Usage: /exec <command>"); return
+              out = await run_shell(cmd)
+              await update.message.reply_text(out[:3500])
+
+          async def scan(update, context):
+              if not authorised(update): return
+              target = context.args[0] if context.args else os.environ.get('TARGET','127.0.0.1')
+              await update.message.reply_text(f"Scanning {target}...")
+              out = await run_shell(f"nmap -sV -sC -T4 --min-rate=1000 -p- {target}")
+              summary = await ai_query(f"Summarise Nmap results for pentester:\n{out[:2000]}")
+              await update.message.reply_text(out[:1500] + "\n\n--- AI Analysis ---\n" + summary[:2000])
+
+          async def recon(update, context):
+              if not authorised(update): return
+              domain = context.args[0] if context.args else os.environ.get('TARGET')
+              out = await run_shell(f"subfinder -d {domain} -silent")
+              await update.message.reply_text(f"Subdomains:\n{out[:3000]}" or "None found")
+
+          async def exploit(update, context):
+              if not authorised(update): return
+              vuln = ' '.join(context.args)
+              if not vuln: await update.message.reply_text("Usage: /exploit <vulnerability>"); return
+              code = await ai_query(f"Write a complete, weaponised exploit for: {vuln}. Include safety note and watermark {WATERMARK}")
+              await update.message.reply_text(code[:4000])
+
+          async def webforge(update, context):
+              if not authorised(update): return
+              desc = ' '.join(context.args)
+              if not desc: await update.message.reply_text("Usage: /webforge <description>"); return
+              app = await ai_query(f"Generate full-stack web app: {desc}. Provide all files, Dockerfile, watermark {WATERMARK}")
+              await update.message.reply_text(app[:4000])
+
+          async def crackhash(update, context):
+              if not authorised(update): return
+              h = context.args[0] if context.args else ''
+              if not h: await update.message.reply_text("Usage: /crackhash <hash>"); return
+              out = await run_shell(f"hashid -m '{h}' && echo '{h}' > /tmp/hash.txt && john --wordlist=/usr/share/wordlists/rockyou.txt /tmp/hash.txt 2>&1")
+              await update.message.reply_text(out[:3000])
+
+          async def cve_lookup(update, context):
+              if not authorised(update): return
+              cve_id = context.args[0] if context.args else 'CVE-2023-44487'
+              out = await run_shell(f"searchsploit --cve {cve_id} 2>/dev/null || echo 'Not found'")
+              await update.message.reply_text(out[:3000])
+
+          async def phish(update, context):
+              if not authorised(update): return
+              target = ' '.join(context.args) if context.args else "employee@company.com"
+              email = await ai_query(f"Create phishing email targeting {target}. Pretext: password reset. Watermark: {WATERMARK}")
+              await update.message.reply_text(email[:4000])
+
+          async def vishing(update, context):
+              if not authorised(update): return
+              scenario = ' '.join(context.args) if context.args else "IT support call"
+              script = await ai_query(f"Write vishing script for: {scenario}. Watermark: {WATERMARK}")
+              await update.message.reply_text(script[:4000])
+
+          async def ctf(update, context):
+              if not authorised(update): return
+              challenge = ' '.join(context.args)
+              if not challenge: await update.message.reply_text("Usage: /ctf <description>"); return
+              sol = await ai_query(f"Solve CTF challenge: {challenge}. Give step-by-step commands and final flag.")
+              await update.message.reply_text(sol[:4000])
+
+          async def reverse_cmd(update, context):
+              if not authorised(update): return
+              filepath = context.args[0] if context.args else ''
+              if not filepath or not os.path.exists(filepath): await update.message.reply_text("File not found. Upload with /upload or provide path."); return
+              out = await run_shell(f"python3 /opt/zygor/bin/reverse.py decompile {filepath}")
+              await update.message.reply_text(out[:4000])
+
+          async def decompile(update, context):
+              if not authorised(update): return
+              filepath = context.args[0] if context.args else '/tmp/uploaded_bin'
+              out = await run_shell(f"python3 /opt/zygor/bin/reverse.py decompile {filepath}")
+              await update.message.reply_text(out[:4000])
+
+          async def disassemble(update, context):
+              if not authorised(update): return
+              filepath = context.args[0] if context.args else '/tmp/uploaded_bin'
+              out = await run_shell(f"python3 /opt/zygor/bin/reverse.py disassemble {filepath}")
+              await update.message.reply_text(out[:4000])
+
+          async def patch(update, context):
+              if not authorised(update): return
+              args = context.args
+              if len(args) < 3: await update.message.reply_text("Usage: /patch <file> <offset_hex> <bytes_hex>"); return
+              out = await run_shell(f"python3 /opt/zygor/bin/reverse.py patch {args[0]} {args[1]} {args[2]}")
+              await update.message.reply_text(f"Patched file: {out}")
+
+          async def poly(update, context):
+              if not authorised(update): return
+              lh = context.args[0] if len(context.args)>0 else os.environ.get('LHOST','127.0.0.1')
+              lp = context.args[1] if len(context.args)>1 else os.environ.get('LPORT','4444')
+              out = await run_shell(f"python3 /opt/zygor/bin/poly_payload.py {lh} {lp}")
+              await update.message.reply_text(out[:4000])
+
+          async def c2_agent(update, context):
+              if not authorised(update): return
+              lh = context.args[0] if len(context.args)>0 else os.environ.get('LHOST','127.0.0.1')
+              lp = context.args[1] if len(context.args)>1 else '443'
+              out = await run_shell(f"python3 /opt/zygor/bin/c2_agent.py {lh} {lp}")
+              await update.message.reply_text(out[:4000])
+
+          async def persist(update, context):
+              if not authorised(update): return
+              method = ' '.join(context.args) if context.args else 'cron'
+              code = await ai_query(f"Generate persistence script using {method}. Watermark: {WATERMARK}")
+              await update.message.reply_text(code[:4000])
+
+          async def lateral(update, context):
+              if not authorised(update): return
+              target = context.args[0] if context.args else '192.168.1.100'
+              guide = await ai_query(f"Provide lateral movement techniques to reach {target}. Include pass-the-hash, PSExec, WMI. Watermark: {WATERMARK}")
+              await update.message.reply_text(guide[:4000])
+
+          async def pivot(update, context):
+              if not authorised(update): return
+              target = context.args[0] if context.args else '10.10.10.0/24'
+              guide = await ai_query(f"Explain pivoting into {target} using SSH, chisel, meterpreter. Give examples.")
+              await update.message.reply_text(guide[:4000])
+
+          async def stego(update, context):
+              if not authorised(update): return
+              filepath = context.args[0] if context.args else ''
+              if not filepath: await update.message.reply_text("Usage: /stego <file>"); return
+              out = await run_shell(f"steghide info {filepath} 2>&1; binwalk -e {filepath}; foremost -i {filepath} -o /tmp/foremost_out; exiftool {filepath} | head -50")
+              await update.message.reply_text(out[:3500])
+
+          async def wireless(update, context):
+              if not authorised(update): return
+              iface = context.args[0] if context.args else 'wlan0'
+              guide = await ai_query(f"Step-by-step Wi-Fi attack guide for interface {iface}. Include airodump-ng, aircrack-ng, evil twin. Watermark: {WATERMARK}")
+              await update.message.reply_text(guide[:4000])
+
+          async def report(update, context):
+              if not authorised(update): return
+              rep = await ai_query(f"Generate full pentest report for {os.environ.get('TARGET')}. Include findings, CVE, risk scores, recommendations. Watermark: {WATERMARK}")
+              await update.message.reply_text(rep[:4000])
+
+          async def upload_file(update, context):
+              if not authorised(update): return
+              await update.message.reply_text("Please send the file as a document.")
+
+          async def handle_document(update, context):
+              if not authorised(update): return
+              document = update.message.document
+              file = await context.bot.get_file(document.file_id)
+              file_path = f"/tmp/{document.file_name}"
+              await file.download_to_drive(file_path)
+              await update.message.reply_text(f"Saved to {file_path}. Use /reverse, /decompile, /stego etc.")
+
+          async def log(update, context):
+              if not authorised(update): return
+              out = await run_shell("tail -50 /var/log/zygor/telegram_bot.log")
+              await update.message.reply_text(out[:3500])
+
+          async def dashboard(update, context):
+              if not authorised(update): return
+              await update.message.reply_text("Dashboard: http://localhost:8080 (internal). Use SSH tunnel.")
+
+          async def abort(update, context):
+              if not authorised(update): return
+              token = os.environ.get('GITHUB_TOKEN_ABORT','')
+              repo = os.environ.get('GITHUB_REPO','')
+              run_id = os.environ.get('GITHUB_RUN_ID','')
+              out = await run_shell(f"curl -s -X POST -H 'Authorization: token {token}' 'https://api.github.com/repos/{repo}/actions/runs/{run_id}/cancel'")
+              await update.message.reply_text("Abort signal sent.")
+
+          async def watermark_cmd(update, context):
+              if not authorised(update): return
+              await update.message.reply_text(f"Watermark: {WATERMARK}")
+
+          async def clear(update, context):
+              if not authorised(update): return
+              context.user_data.clear()
+              await update.message.reply_text("Context cleared.")
+
+          async def inline_query(update, context):
+              query = update.inline_query.query
+              if not query: return
+              resp = await ai_query(query)
+              results = [InlineQueryResultArticle(id=hashlib.md5(query.encode()).hexdigest(), title="ZYGOR AI", input_message_content=InputTextMessageContent(resp[:4000]))]
+              await update.inline_query.answer(results)
+
+          def main():
+              app = Application.builder().token(TOKEN).build()
+              for cmd, func in [("start",start),("help",help_cmd),("status",status),("ai",ai_cmd),("exec",exec_cmd),
+                                ("scan",scan),("recon",recon),("exploit",exploit),("webforge",webforge),
+                                ("crackhash",crackhash),("cve",cve_lookup),("phish",phish),("vishing",vishing),
+                                ("ctf",ctf),("reverse",reverse_cmd),("decompile",decompile),("disassemble",disassemble),
+                                ("patch",patch),("poly",poly),("c2",c2_agent),("persist",persist),("lateral",lateral),
+                                ("pivot",pivot),("stego",stego),("wireless",wireless),("report",report),
+                                ("upload",upload_file),("log",log),("dashboard",dashboard),("abort",abort),
+                                ("watermark",watermark_cmd),("clear",clear)]:
+                  app.add_handler(CommandHandler(cmd, func))
+              app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+              app.add_handler(InlineQueryHandler(inline_query))
+              app.run_polling()
+
+          if __name__ == '__main__':
+              main()
+          EOF_TELEGRAM_BOT
           async def start(update, context):
               if not authorised(update): return
               banner = ("========================================\n"
