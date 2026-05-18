@@ -1,5 +1,5 @@
 # =============================================================================
-# ZYGOR v4.1 ULTIMATE – SINGLE FILE, NO EXTERNAL DEPENDENCIES, 24/7
+# ZYGOR v4.1 ULTIMATE – FULLY SELF-CONTAINED, 24/7, NO EXPRESSION LIMIT
 # =============================================================================
 name: ZYGOR v4.1 Ultimate – Ollama AI Red Team
 
@@ -104,6 +104,14 @@ permissions:
   contents: write
   actions: write
 
+env:
+  # Minimal top-level env – only what is needed by if: conditions and cache keys.
+  # All other variables are set in the setup step (no expression limit issues).
+  AI_MODEL: ${{ github.event.inputs.ai_model || 'mistral:7b-instruct-q4_K_M' }}
+  PHASE: ${{ github.event.inputs.penetration_phase || 'full' }}
+  TELEGRAM_ENABLE: ${{ github.event.inputs.telegram_enable || 'true' }}
+  OLLAMA_MODEL_CACHE: "/home/runner/.ollama/models"
+
 jobs:
   bootstrap:
     name: "ZYGOR Bootstrap"
@@ -112,27 +120,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # =====================================================================
-      # Set environment variables via GITHUB_ENV (no long expressions in env:)
-      # =====================================================================
+      # ---------------------------------------------------------------------
+      # Set ALL runtime env vars via GITHUB_ENV (no expression length issue)
+      # ---------------------------------------------------------------------
       - name: "Setup environment"
         shell: bash
         run: |
-          # ---- Fixed envs ----
+          # Fixed envs
           echo "OLLAMA_HOST=0.0.0.0:11434" >> $GITHUB_ENV
           echo "OLLAMA_READ_TIMEOUT=3600" >> $GITHUB_ENV
           echo "OLLAMA_KEEP_ALIVE=24h" >> $GITHUB_ENV
-          echo "OLLAMA_MODEL_CACHE=/home/runner/.ollama/models" >> $GITHUB_ENV
 
-          # ---- Dynamic envs from inputs (short expressions) ----
+          # Dynamic envs from inputs (expressions are short and safe here)
           echo "TARGET=${{ github.event.inputs.target || '127.0.0.1' }}" >> $GITHUB_ENV
           echo "LHOST=${{ github.event.inputs.lhost || '' }}" >> $GITHUB_ENV
           echo "LPORT=${{ github.event.inputs.lport || '4444' }}" >> $GITHUB_ENV
-          echo "AI_MODEL=${{ github.event.inputs.ai_model || 'mistral:7b-instruct-q4_K_M' }}" >> $GITHUB_ENV
-          echo "PHASE=${{ github.event.inputs.penetration_phase || 'full' }}" >> $GITHUB_ENV
           echo "ENABLE_EXFIL=${{ github.event.inputs.enable_exfiltration || 'false' }}" >> $GITHUB_ENV
           echo "MAX_HOURS=${{ github.event.inputs.run_duration_hours || '6' }}" >> $GITHUB_ENV
-          echo "TELEGRAM_ENABLE=${{ github.event.inputs.telegram_enable || 'true' }}" >> $GITHUB_ENV
           echo "TELEGRAM_CHAT_ID=${{ github.event.inputs.telegram_chat_id || '' }}" >> $GITHUB_ENV
           echo "TELEGRAM_BOT_TOKEN=${{ github.event.inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN || '' }}" >> $GITHUB_ENV
           echo "SOCIAL_ENG=${{ github.event.inputs.enable_social_engineering || 'false' }}" >> $GITHUB_ENV
@@ -154,9 +158,9 @@ jobs:
           echo "GITHUB_RUN_ID=${{ github.run_id }}" >> $GITHUB_ENV
           echo "WORKFLOW_ID=${{ github.workflow_id }}" >> $GITHUB_ENV
 
-      # =====================================================================
-      # Disk cleanup & tools
-      # =====================================================================
+      # ---------------------------------------------------------------------
+      # Disk cleanup & tool installation
+      # ---------------------------------------------------------------------
       - name: "Disk expansion"
         shell: bash
         run: |
@@ -190,9 +194,9 @@ jobs:
           sudo mkdir -p /var/log/zygor
           sudo chmod -R 777 /opt/zygor /var/log/zygor
 
-      # =====================================================================
+      # ---------------------------------------------------------------------
       # Ollama
-      # =====================================================================
+      # ---------------------------------------------------------------------
       - name: "Install & start Ollama"
         shell: bash
         run: |
@@ -246,9 +250,9 @@ jobs:
           EOF
           chmod +x /opt/zygor/bin/ai_complete
 
-      # =====================================================================
+      # ---------------------------------------------------------------------
       # Auxiliary modules (small)
-      # =====================================================================
+      # ---------------------------------------------------------------------
       - name: "Build auxiliary modules"
         shell: bash
         run: |
@@ -264,14 +268,12 @@ jobs:
           EOF
           chmod +x /opt/zygor/bin/*.py
 
-      # =====================================================================
-      # TELEGRAM BOT – full script embedded directly (no expression limit)
-      # =====================================================================
+      # ---------------------------------------------------------------------
+      # TELEGRAM BOT – embedded directly (no external file, no expression issues)
+      # ---------------------------------------------------------------------
       - name: "Create Telegram bot script"
         shell: bash
         run: |
-          # The following heredoc contains the COMPLETE bot script.
-          # It does NOT use ${{ }} – all values come from environment variables.
           cat > telegram_bot_v4.py << 'BOTSCRIPT'
           #!/usr/bin/env python3
           """ZYGOR v4.1 Telegram Bot – Self-re-trigger, never stops"""
@@ -784,9 +786,9 @@ jobs:
           BOTSCRIPT
           chmod +x telegram_bot_v4.py
 
-      # =====================================================================
+      # ---------------------------------------------------------------------
       # START BOT & WAIT FOR RE‑TRIGGER (24/7 loop)
-      # =====================================================================
+      # ---------------------------------------------------------------------
       - name: "Start Telegram Bot and keep alive until re-trigger"
         if: env.TELEGRAM_ENABLE == 'true'
         env:
