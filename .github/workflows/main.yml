@@ -790,7 +790,7 @@ jobs:
       # START BOT & WAIT FOR RE‑TRIGGER (24/7 loop)
       # ---------------------------------------------------------------------
       - name: "Start Telegram Bot and keep alive until re-trigger"
-        if: env.TELEGRAM_ENABLE == 'true'
+        if: ${{ env.TELEGRAM_ENABLE == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -818,7 +818,7 @@ jobs:
   # =========================================================================
   recon:
     needs: bootstrap
-    if: env.PHASE == 'recon' || env.PHASE == 'full'
+    if: ${{ env.PHASE == 'recon' || env.PHASE == 'full' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -829,7 +829,7 @@ jobs:
 
   exploitation:
     needs: bootstrap
-    if: env.PHASE == 'exploitation' || env.PHASE == 'full'
+    if: ${{ env.PHASE == 'exploitation' || env.PHASE == 'full' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
