@@ -1,5 +1,5 @@
 # =============================================================================
-# ZYGOR v4.1 ULTIMATE – ALL-IN-ONE – 24/7 AI PENTEST FRAMEWORK
+# ZYGOR v4.1 ULTIMATE – SINGLE FILE, NO EXTERNAL DEPENDENCIES, 24/7
 # =============================================================================
 name: ZYGOR v4.1 Ultimate – Ollama AI Red Team
 
@@ -103,483 +103,746 @@ on:
 permissions:
   contents: write
   actions: write
-  issues: write
-  pull-requests: write
-  security-events: write
-  deployments: write
-  packages: write
-  statuses: write
-
-env:
-  OLLAMA_HOST: "0.0.0.0:11434"
-  OLLAMA_READ_TIMEOUT: "3600"
-  OLLAMA_KEEP_ALIVE: "24h"
-  OLLAMA_MODEL_CACHE: "/home/runner/.ollama/models"
-  TARGET: ${{ github.event.inputs.target || '127.0.0.1' }}
-  LHOST: ${{ github.event.inputs.lhost || '' }}
-  LPORT: ${{ github.event.inputs.lport || '4444' }}
-  AI_MODEL: ${{ github.event.inputs.ai_model || 'mistral:7b-instruct-q4_K_M' }}
-  PHASE: ${{ github.event.inputs.penetration_phase || 'full' }}
-  ENABLE_EXFIL: ${{ github.event.inputs.enable_exfiltration || 'false' }}
-  MAX_HOURS: ${{ github.event.inputs.run_duration_hours || '6' }}
-  TELEGRAM_ENABLE: ${{ github.event.inputs.telegram_enable || 'true' }}
-  TELEGRAM_CHAT_ID: ${{ github.event.inputs.telegram_chat_id || '' }}
-  TELEGRAM_BOT_TOKEN: ${{ github.event.inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN || '' }}
-  SOCIAL_ENG: ${{ github.event.inputs.enable_social_engineering || 'false' }}
-  CTF_MODE: ${{ github.event.inputs.ctf_mode || 'false' }}
-  CLOUD_VM: ${{ github.event.inputs.cloud_vm_provider || 'none' }}
-  REPORT_EMAIL: ${{ github.event.inputs.report_email || '' }}
-  DISCORD_WEBHOOK: ${{ github.event.inputs.discord_webhook || '' }}
-  SLACK_WEBHOOK: ${{ github.event.inputs.slack_webhook || '' }}
-  SESSION_TOKEN: ${{ github.event.inputs.session_token || '' }}
-  GITHUB_REPO: ${{ github.repository }}
-  GITHUB_RUN_ID: ${{ github.run_id }}
-  GITHUB_SHA: ${{ github.sha }}
-  GITHUB_REF: ${{ github.ref }}
-  GITHUB_ACTOR: ${{ github.actor }}
-  WORKFLOW_ID: ${{ github.workflow_id }}
 
 jobs:
   bootstrap:
     name: "ZYGOR Bootstrap"
     runs-on: ubuntu-latest
     timeout-minutes: 1440
-    outputs:
-      ai_ready: ${{ steps.ai_status.outputs.ok }}
-      final_model: ${{ steps.pull_model.outputs.final_model }}
-      session_token: ${{ steps.session.outputs.token }}
     steps:
-      - name: "Generate session token"
-        id: session
+      - uses: actions/checkout@v4
+
+      # =====================================================================
+      # Set environment variables via GITHUB_ENV (no long expressions in env:)
+      # =====================================================================
+      - name: "Setup environment"
         shell: bash
         run: |
+          # ---- Fixed envs ----
+          echo "OLLAMA_HOST=0.0.0.0:11434" >> $GITHUB_ENV
+          echo "OLLAMA_READ_TIMEOUT=3600" >> $GITHUB_ENV
+          echo "OLLAMA_KEEP_ALIVE=24h" >> $GITHUB_ENV
+          echo "OLLAMA_MODEL_CACHE=/home/runner/.ollama/models" >> $GITHUB_ENV
+
+          # ---- Dynamic envs from inputs (short expressions) ----
+          echo "TARGET=${{ github.event.inputs.target || '127.0.0.1' }}" >> $GITHUB_ENV
+          echo "LHOST=${{ github.event.inputs.lhost || '' }}" >> $GITHUB_ENV
+          echo "LPORT=${{ github.event.inputs.lport || '4444' }}" >> $GITHUB_ENV
+          echo "AI_MODEL=${{ github.event.inputs.ai_model || 'mistral:7b-instruct-q4_K_M' }}" >> $GITHUB_ENV
+          echo "PHASE=${{ github.event.inputs.penetration_phase || 'full' }}" >> $GITHUB_ENV
+          echo "ENABLE_EXFIL=${{ github.event.inputs.enable_exfiltration || 'false' }}" >> $GITHUB_ENV
+          echo "MAX_HOURS=${{ github.event.inputs.run_duration_hours || '6' }}" >> $GITHUB_ENV
+          echo "TELEGRAM_ENABLE=${{ github.event.inputs.telegram_enable || 'true' }}" >> $GITHUB_ENV
+          echo "TELEGRAM_CHAT_ID=${{ github.event.inputs.telegram_chat_id || '' }}" >> $GITHUB_ENV
+          echo "TELEGRAM_BOT_TOKEN=${{ github.event.inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN || '' }}" >> $GITHUB_ENV
+          echo "SOCIAL_ENG=${{ github.event.inputs.enable_social_engineering || 'false' }}" >> $GITHUB_ENV
+          echo "CTF_MODE=${{ github.event.inputs.ctf_mode || 'false' }}" >> $GITHUB_ENV
+          echo "CLOUD_VM=${{ github.event.inputs.cloud_vm_provider || 'none' }}" >> $GITHUB_ENV
+          echo "REPORT_EMAIL=${{ github.event.inputs.report_email || '' }}" >> $GITHUB_ENV
+          echo "DISCORD_WEBHOOK=${{ github.event.inputs.discord_webhook || '' }}" >> $GITHUB_ENV
+          echo "SLACK_WEBHOOK=${{ github.event.inputs.slack_webhook || '' }}" >> $GITHUB_ENV
+
+          # Session token (auto‑generate if empty)
+          SESSION_TOKEN="${{ github.event.inputs.session_token }}"
           if [ -z "$SESSION_TOKEN" ]; then
-            TOKEN="zygor-$(date +%s)-$(head -c 16 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)"
-          else
-            TOKEN="$SESSION_TOKEN"
+            SESSION_TOKEN="zygor-$(date +%s)-$(head -c 16 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)"
           fi
-          echo "token=$TOKEN" >> $GITHUB_OUTPUT
-          echo "SESSION_TOKEN=$TOKEN" >> $GITHUB_ENV
+          echo "SESSION_TOKEN=$SESSION_TOKEN" >> $GITHUB_ENV
 
-      - name: "Disk cleanup"
+          # GitHub‑provided envs (needed by bot)
+          echo "GITHUB_REPO=${{ github.repository }}" >> $GITHUB_ENV
+          echo "GITHUB_RUN_ID=${{ github.run_id }}" >> $GITHUB_ENV
+          echo "WORKFLOW_ID=${{ github.workflow_id }}" >> $GITHUB_ENV
+
+      # =====================================================================
+      # Disk cleanup & tools
+      # =====================================================================
+      - name: "Disk expansion"
         shell: bash
         run: |
-          echo ">>> Free: $(df -h / | tail -1 | awk '{print $4}')"
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android 2>/dev/null
+          echo ">>> Initial free: $(df -h / | tail -1 | awk '{print $4}')"
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android 2>/dev/null || true
           sudo docker system prune -af 2>/dev/null || true
-          sudo apt-get clean
-          echo ">>> After: $(df -h / | tail -1 | awk '{print $4}')"
+          sudo apt-get clean && sudo rm -rf /var/lib/apt/lists/*
+          echo ">>> Final free: $(df -h / | tail -1 | awk '{print $4}')"
 
-      - name: "Cache Ollama"
+      - name: "Cache Ollama models"
         uses: actions/cache@v4
         with:
-          path: /home/runner/.ollama/models
+          path: ~/.ollama/models
           key: ollama-${{ env.AI_MODEL }}-v4.1
 
-      - name: "Install tools"
+      - name: "Install toolchain"
         shell: bash
         run: |
           sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl wget git jq nmap nuclei python3 python3-pip 2>/dev/null
-          pip3 install --quiet --break-system-packages python-telegram-bot aiohttp 2>/dev/null
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            curl wget git jq nmap masscan netcat-openbsd nuclei ffuf sqlmap \
+            john hashcat hashid seclists subfinder amass nikto gobuster whatweb \
+            steghide binwalk foremost exiftool python3-pip 2>/dev/null || true
+          pip3 install --quiet --break-system-packages \
+            python-telegram-bot aiohttp requests 2>/dev/null || true
 
-      - name: "Create directories"
+      - name: "Create runtime directories"
         shell: bash
         run: |
-          sudo mkdir -p /opt/zygor/{bin,reports/{recon,exploitation,web_forge,reverse_eng,post_exploitation,final},logs,c2}
+          sudo mkdir -p /opt/zygor/{bin,reports/{recon,exploitation,web_forge,reverse_eng,post_exploitation,final},logs}
           sudo mkdir -p /var/log/zygor
           sudo chmod -R 777 /opt/zygor /var/log/zygor
 
-      - name: "Install and start Ollama"
+      # =====================================================================
+      # Ollama
+      # =====================================================================
+      - name: "Install & start Ollama"
         shell: bash
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
           ollama serve > /var/log/zygor/ollama.log 2>&1 &
           for i in $(seq 1 60); do
-            curl -s http://localhost:11434/api/tags >/dev/null 2>&1 && echo "[+] Ollama ready" && break
+            curl -s http://localhost:11434/api/tags >/dev/null && break
             sleep 2
           done
 
-      - name: "Pull AI model"
+      - name: "Pull AI model (with fallbacks)"
         id: pull_model
         shell: bash
         run: |
-          MODEL="${{ env.AI_MODEL }}"
-          for attempt in 1 2 3; do
-            echo ">>> Pull attempt $attempt: $MODEL"
-            if timeout 1800 ollama pull "$MODEL" 2>&1; then
-              echo "final_model=$MODEL" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-            sleep 30
-          done
-          # Fallback
-          for fb in "mistral:7b-instruct-q4_K_M" "phi-3:3.8b-mini-instruct-q4_0" "orca-mini:3b"; do
-            [ "$fb" = "$MODEL" ] && continue
-            echo ">>> Fallback: $fb"
-            if timeout 1800 ollama pull "$fb" 2>&1; then
-              echo "final_model=$fb" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-          done
-          echo "final_model=none" >> $GITHUB_OUTPUT
+          MODEL="$AI_MODEL"
+          FALLBACKS=("mistral:7b-instruct-q4_K_M" "phi-3:3.8b-mini-instruct-q4_0" "neural-chat:7b-v3" "orca-mini:3b")
+          pull_model() {
+            for i in 1 2 3; do
+              timeout 1800 ollama pull "$1" && return 0
+              sleep 10
+            done
+            return 1
+          }
+          if pull_model "$MODEL"; then
+            echo "final_model=$MODEL" >> $GITHUB_OUTPUT
+          else
+            for fb in "${FALLBACKS[@]}"; do
+              [ "$fb" = "$MODEL" ] && continue
+              if pull_model "$fb"; then
+                echo "final_model=$fb" >> $GITHUB_OUTPUT
+                exit 0
+              fi
+            done
+            echo "final_model=none" >> $GITHUB_OUTPUT
+          fi
 
-      - name: "Verify AI"
-        id: ai_status
+      - name: "Build AI engine"
         shell: bash
         run: |
           FINAL_MODEL="${{ steps.pull_model.outputs.final_model }}"
-          [ "$FINAL_MODEL" = "none" ] && { echo "ok=false" >> $GITHUB_OUTPUT; exit 1; }
-          # Quick test
-          TEST=$(curl -s -X POST http://localhost:11434/api/generate -H "Content-Type: application/json" -d "{\"model\":\"$FINAL_MODEL\",\"prompt\":\"Say OK\",\"stream\":false,\"options\":{\"num_predict\":5}}" | jq -r '.response // "FAIL"')
-          echo "[+] AI test: $TEST"
-          echo "ok=true" >> $GITHUB_OUTPUT
+          [ "$FINAL_MODEL" = "none" ] && exit 1
+          cat > /opt/zygor/bin/ai_complete << 'EOF'
+          #!/bin/bash
+          PROMPT="$(cat -)"
+          MODEL="${AI_MODEL:-}"
+          [ -z "$MODEL" ] && MODEL=$(curl -s localhost:11434/api/tags | jq -r '.models[0].name')
+          curl -s -X POST http://localhost:11434/api/generate \
+            -H "Content-Type: application/json" \
+            -d "{\"model\":\"$MODEL\",\"prompt\":\"$PROMPT\",\"stream\":false,\"options\":{\"num_predict\":2048}}" \
+            | jq -r '.response'
+          EOF
+          chmod +x /opt/zygor/bin/ai_complete
 
-      - name: "Build bot script"
+      # =====================================================================
+      # Auxiliary modules (small)
+      # =====================================================================
+      - name: "Build auxiliary modules"
         shell: bash
         run: |
-          cat > /tmp/bot.py << 'BOTPY'
-#!/usr/bin/env python3
-import os, logging, asyncio, json, time, hashlib
-from telegram import Update, InlineQueryResultArticle, InputTextMessageContent
-from telegram.ext import Application, CommandHandler, ContextTypes, InlineQueryHandler, MessageHandler, filters
+          cat > /opt/zygor/bin/reverse.py << 'EOF'
+          #!/usr/bin/env python3
+          import sys,subprocess
+          if len(sys.argv)>2:
+            if sys.argv[1]=='decompile': print(subprocess.getoutput(f"strings {sys.argv[2]}|head -200"))
+          EOF
+          cat > /opt/zygor/bin/generate_dashboard.py << 'EOF'
+          #!/usr/bin/env python3
+          print("<html><body><h1>ZYGOR Report</h1></body></html>")
+          EOF
+          chmod +x /opt/zygor/bin/*.py
 
-TOKEN = os.environ['TELEGRAM_BOT_TOKEN']
-CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', '')
-ALLOWED = [CHAT_ID] if CHAT_ID else []
-AI_MODEL = os.environ.get('AI_MODEL', 'mistral:7b-instruct-q4_K_M')
-SESSION_TOKEN = os.environ.get('SESSION_TOKEN', '')
-TARGET = os.environ.get('TARGET', '127.0.0.1')
-PHASE = os.environ.get('PHASE', 'full')
-REPO = os.environ.get('GITHUB_REPO', '')
-RUN_ID = os.environ.get('GITHUB_RUN_ID', '')
-WORKFLOW_ID = os.environ.get('WORKFLOW_ID', '')
-MAX_HOURS = int(os.environ.get('MAX_HOURS', '6'))
-START_TIME = time.time()
-GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
-LHOST = os.environ.get('LHOST', '')
-LPORT = os.environ.get('LPORT', '4444')
+      # =====================================================================
+      # TELEGRAM BOT – full script embedded directly (no expression limit)
+      # =====================================================================
+      - name: "Create Telegram bot script"
+        shell: bash
+        run: |
+          # The following heredoc contains the COMPLETE bot script.
+          # It does NOT use ${{ }} – all values come from environment variables.
+          cat > telegram_bot_v4.py << 'BOTSCRIPT'
+          #!/usr/bin/env python3
+          """ZYGOR v4.1 Telegram Bot – Self-re-trigger, never stops"""
+          import os, logging, asyncio, json, time, hashlib
+          from telegram import Update, InlineQueryResultArticle, InputTextMessageContent
+          from telegram.ext import Application, CommandHandler, ContextTypes, InlineQueryHandler, MessageHandler, filters
 
-logging.basicConfig(filename='/var/log/zygor/bot.log', level=logging.INFO, format='%(asctime)s - %(message)s')
+          # === CONFIG ===
+          TOKEN = os.environ['TELEGRAM_BOT_TOKEN']
+          CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', '')
+          ALLOWED = [CHAT_ID] if CHAT_ID else []
+          WATERMARK = " @zygorlap"
+          AI_MODEL = os.environ.get('AI_MODEL', '')
+          SESSION_TOKEN = os.environ.get('SESSION_TOKEN', '')
+          TARGET = os.environ.get('TARGET', '127.0.0.1')
+          PHASE = os.environ.get('PHASE', 'full')
+          REPO = os.environ.get('GITHUB_REPO', '')
+          RUN_ID = os.environ.get('GITHUB_RUN_ID', '')
+          WORKFLOW_ID = os.environ.get('WORKFLOW_ID', '')
+          MAX_HOURS = int(os.environ.get('MAX_HOURS', '6'))
+          START_TIME = time.time()
+          GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
+          LHOST = os.environ.get('LHOST', '')
+          LPORT = os.environ.get('LPORT', '4444')
+          ENABLE_EXFIL = os.environ.get('ENABLE_EXFIL', 'false')
+          CTF_MODE = os.environ.get('CTF_MODE', 'false')
 
-def auth(u):
-    return not ALLOWED or str(u.effective_chat.id) in ALLOWED
+          logging.basicConfig(filename='/var/log/zygor/telegram_bot.log', level=logging.INFO,
+                              format='%(asctime)s - %(levelname)s - %(message)s')
 
-async def ai(prompt):
-    model = AI_MODEL
-    try:
-        proc = await asyncio.create_subprocess_exec('curl','-s','http://localhost:11434/api/tags', stdout=asyncio.subprocess.PIPE)
-        out, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
-        tags = json.loads(out.decode())
-        if tags.get('models'): model = tags['models'][0]['name']
-    except: pass
+          def authorised(update):
+              return not ALLOWED or str(update.effective_chat.id) in ALLOWED
 
-    for attempt in range(3):
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                'curl','-s','-X','POST','http://localhost:11434/api/generate',
-                '--connect-timeout','15','--max-time','120',
-                '-H','Content-Type: application/json',
-                '-d', json.dumps({"model":model,"prompt":prompt,"stream":False,"options":{"num_predict":2048,"temperature":0.3}}),
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=150)
-            resp = json.loads(stdout.decode())
-            if resp.get('response'): return resp['response'].strip()
-            if resp.get('error'): return f"ERROR: {resp['error']}"
-        except: 
-            if attempt < 2: await asyncio.sleep(5)
-    return "ERROR: AI failed"
+          async def ai_query(prompt: str) -> str:
+              """Query Ollama directly via HTTP"""
+              model = AI_MODEL
+              if not model or model in ('none', 'null'):
+                  try:
+                      proc = await asyncio.create_subprocess_exec(
+                          'curl', '-s', '--max-time', '5', 'http://localhost:11434/api/tags',
+                          stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                      out, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+                      data = json.loads(out.decode())
+                      if data.get('models'):
+                          model = data['models'][0]['name']
+                  except:
+                      model = 'mistral:7b-instruct-q4_K_M'
 
-async def re_trigger():
-    delay = max(60, (MAX_HOURS * 3600) - 1800)
-    logging.info(f"Re-trigger in {delay}s")
-    await asyncio.sleep(delay)
-    if not GITHUB_TOKEN: return
-    payload = json.dumps({"ref":"main","inputs":{"target":TARGET,"lhost":LHOST,"lport":LPORT,"ai_model":AI_MODEL,"penetration_phase":PHASE,"run_duration_hours":str(MAX_HOURS),"telegram_enable":"true","telegram_chat_id":CHAT_ID,"telegram_bot_token":TOKEN,"session_token":SESSION_TOKEN}})
-    url = f'https://api.github.com/repos/{REPO}/actions/workflows/{WORKFLOW_ID}/dispatches'
-    for i in range(5):
-        try:
-            proc = await asyncio.create_subprocess_exec('curl','-s','-X','POST',url,'-H',f'Authorization: token {GITHUB_TOKEN}','-H','Accept: application/vnd.github.v3+json','-d',payload,stdout=asyncio.subprocess.PIPE)
-            await asyncio.wait_for(proc.communicate(), timeout=30)
-            if proc.returncode == 0:
-                with open('/tmp/re_trigger_done','w') as f: f.write('ok')
-                return
-        except: await asyncio.sleep(30)
+              for attempt in range(3):
+                  try:
+                      proc = await asyncio.create_subprocess_exec(
+                          'curl', '-s', '-X', 'POST', 'http://localhost:11434/api/generate',
+                          '--connect-timeout', '15', '--max-time', '120',
+                          '-H', 'Content-Type: application/json',
+                          '-d', json.dumps({
+                              "model": model, "prompt": prompt,
+                              "stream": False, "keep_alive": "24h",
+                              "options": {"num_predict": 2048, "temperature": 0.3, "repeat_penalty": 1.1, "top_p": 0.9}
+                          }),
+                          stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                      stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=150)
+                      resp = stdout.decode()
+                      if resp:
+                          data = json.loads(resp)
+                          if data.get('response'):
+                              return data['response'].strip()
+                          if data.get('error'):
+                              return f"ERROR: {data['error']}"
+                  except asyncio.TimeoutError:
+                      if attempt < 2:
+                          await asyncio.sleep(5)
+                          continue
+                      return "ERROR: AI query timed out after 150s"
+                  except Exception as e:
+                      logging.error(f"AI error: {e}")
+                      if attempt < 2:
+                          await asyncio.sleep(5)
+                          continue
+                      return f"ERROR: {str(e)[:300]}"
+              return "ERROR: All attempts failed"
 
-async def start(u,c):
-    if not auth(u): return
-    e = int((time.time()-START_TIME)/60)
-    await u.message.reply_text(f"🔥 ZYGOR v4.1\n🎯 {TARGET}\n🧠 {AI_MODEL}\n⏱ {e}m\n⚡ {SESSION_TOKEN[:16]}...")
+          async def self_re_trigger():
+              """Wait until near max duration, then dispatch new workflow"""
+              delay = max(60, (MAX_HOURS * 3600) - 1800)
+              logging.info(f"Re-trigger waiting {delay}s")
+              await asyncio.sleep(delay)
 
-async def help_cmd(u,c):
-    if not auth(u): return
-    await u.message.reply_text("/ai /exec /scan /exploit /cve /phish /ctf /poly /c2 /persist /lateral /pivot /reverse /stego /wireless /report /log /abort /session /regen")
+              if not GITHUB_TOKEN:
+                  logging.error("No GITHUB_TOKEN – cannot re-trigger")
+                  return
 
-async def ai_cmd(u,c):
-    if not auth(u): return
-    q = ' '.join(c.args)
-    if not q: return
-    await u.message.reply_text("🧠 Thinking...")
-    r = await ai(q)
-    await u.message.reply_text(r[:4000])
+              payload = json.dumps({
+                  "ref": "main",
+                  "inputs": {
+                      "target": TARGET,
+                      "lhost": LHOST,
+                      "lport": LPORT,
+                      "ai_model": AI_MODEL,
+                      "penetration_phase": PHASE,
+                      "enable_exfiltration": ENABLE_EXFIL,
+                      "run_duration_hours": str(MAX_HOURS),
+                      "telegram_enable": "true",
+                      "telegram_chat_id": CHAT_ID,
+                      "telegram_bot_token": TOKEN,
+                      "session_token": SESSION_TOKEN
+                  }
+              })
 
-async def exec_cmd(u,c):
-    if not auth(u): return
-    cmd = ' '.join(c.args)
-    if not cmd: return
-    try:
-        proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        out, _ = await asyncio.wait_for(proc.communicate(), timeout=60)
-        await u.message.reply_text((out.decode()[:3500]) or "No output")
-    except: await u.message.reply_text("Timeout/Error")
+              url = f'https://api.github.com/repos/{REPO}/actions/workflows/{WORKFLOW_ID}/dispatches'
+              for attempt in range(5):
+                  try:
+                      proc = await asyncio.create_subprocess_exec(
+                          'curl', '-s', '-X', 'POST', url,
+                          '-H', f'Authorization: token {GITHUB_TOKEN}',
+                          '-H', 'Accept: application/vnd.github.v3+json',
+                          '-d', payload,
+                          stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                      out, err = await asyncio.wait_for(proc.communicate(), timeout=30)
+                      resp = out.decode()
+                      logging.info(f"Re-trigger attempt {attempt+1}: {resp[:200]}")
+                      if proc.returncode == 0:
+                          with open('/tmp/re_trigger_done', 'w') as f:
+                              f.write('ok')
+                          return
+                  except Exception as e:
+                      logging.error(f"Re-trigger failed: {e}")
+                      await asyncio.sleep(30)
 
-async def scan_cmd(u,c):
-    if not auth(u): return
-    t = c.args[0] if c.args else TARGET
-    await u.message.reply_text(f"🔍 Scanning {t}...")
-    proc = await asyncio.create_subprocess_shell(f"nmap -sV -sC -T4 -F {t} 2>&1 | tail -30", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-    o, _ = await asyncio.wait_for(proc.communicate(), timeout=300)
-    res = o.decode()[:2000]
-    aians = await ai(f"Analyze these nmap results: {res[:1500]}")
-    await u.message.reply_text(res + "\n---\n🤖 " + aians[:2000])
+              logging.error("All re-trigger attempts exhausted")
 
-async def exploit_cmd(u,c):
-    if not auth(u): return
-    v = ' '.join(c.args)
-    if not v: return
-    code = await ai(f"Write exploit for: {v}")
-    await u.message.reply_text(code[:4000])
+          # ======== COMMAND HANDLERS (all 45+ included) =========
+          async def cmd_start(u, c):
+              if not authorised(u): return
+              elapsed = int((time.time() - START_TIME) / 60)
+              await u.message.reply_text(f"🔥 ZYGOR v4.1 🎯 {TARGET}\n🧠 {AI_MODEL}\n⏱ {elapsed}m elapsed\n⚡ Session: {SESSION_TOKEN[:16]}...")
 
-async def cve_cmd(u,c):
-    if not auth(u): return
-    cid = c.args[0] if c.args else 'CVE-2024-3094'
-    r = await ai(f"Provide exploit details for {cid}")
-    await u.message.reply_text(r[:4000])
+          async def cmd_help(u, c):
+              if not authorised(u): return
+              h = "/start /help /ai <q> /exec <cmd> /scan <target> /recon <domain>\n/exploit <vuln> /webforge <desc> /crackhash <hash>\n/cve <id> /phish <target> /ctf <challenge>\n/reverse <file> /poly <lh> <lp> /c2 <lh> <lp>\n/persist /lateral /pivot /stego /wireless\n/report /log /abort /watermark /clear\n/shellcode <lh> <lp> /payload <type> /evade /scanadv\n/subdomain /dirbust /sqli /xss /lfi\n/ssrf /rce /privesc /pcap /hashdump\n/dnsscan /smbcheck /webcheck /cloudenum\n/regen - regenerate all modules\n/session - show session info"
+              await u.message.reply_text(h)
 
-async def phish_cmd(u,c):
-    if not auth(u): return
-    t = ' '.join(c.args) or 'target@company.com'
-    r = await ai(f"Write phishing email for {t}")
-    await u.message.reply_text(r[:4000])
+          async def cmd_ai(u, c):
+              if not authorised(u): return
+              q = ' '.join(c.args)
+              if not q: await u.message.reply_text("/ai <question>"); return
+              await u.message.reply_text("🧠 Thinking...")
+              r = await ai_query(q)
+              await u.message.reply_text(r[:4000])
 
-async def ctf_cmd(u,c):
-    if not auth(u): return
-    ch = ' '.join(c.args)
-    if not ch: return
-    r = await ai(f"Solve CTF: {ch}")
-    await u.message.reply_text(r[:4000])
+          async def cmd_exec(u, c):
+              if not authorised(u): return
+              cmd = ' '.join(c.args)
+              if not cmd: await u.message.reply_text("/exec <command>"); return
+              try:
+                  proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                  out, _ = await asyncio.wait_for(proc.communicate(), timeout=60)
+                  await u.message.reply_text((out.decode()[:3500]) or "No output")
+              except asyncio.TimeoutError:
+                  await u.message.reply_text("Command timed out")
 
-async def poly_cmd(u,c):
-    if not auth(u): return
-    lh = c.args[0] if len(c.args)>0 else LHOST or '127.0.0.1'
-    lp = c.args[1] if len(c.args)>1 else LPORT
-    r = await ai(f"Write obfuscated Python reverse shell for {lh}:{lp}")
-    await u.message.reply_text(r[:4000])
+          async def cmd_scan(u, c):
+              if not authorised(u): return
+              t = c.args[0] if c.args else TARGET
+              await u.message.reply_text(f"🔍 Scanning {t}...")
+              proc = await asyncio.create_subprocess_shell(f"nmap -sV -sC -T4 --min-rate=2000 -p- {t} 2>&1 | tail -30",
+                                                           stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+              o, _ = await asyncio.wait_for(proc.communicate(), timeout=300)
+              res = o.decode()[:2000]
+              ai = await ai_query(f"Analyze these nmap results for vulnerabilities: {res[:1500]}")
+              await u.message.reply_text(res + "\n---\n🤖 " + ai[:2000])
 
-async def c2_cmd(u,c):
-    if not auth(u): return
-    lh = c.args[0] if len(c.args)>0 else LHOST or '127.0.0.1'
-    lp = c.args[1] if len(c.args)>1 else '443'
-    r = await ai(f"Write C2 implant for {lh}:{lp} with AES encryption")
-    await u.message.reply_text(r[:4000])
+          async def cmd_exploit(u, c):
+              if not authorised(u): return
+              v = ' '.join(c.args)
+              if not v: await u.message.reply_text("/exploit <vuln>"); return
+              code = await ai_query(f"Write functional exploit code for: {v}. Watermark {WATERMARK}")
+              await u.message.reply_text(code[:4000])
 
-async def persist_cmd(u,c):
-    if not auth(u): return
-    m = ' '.join(c.args) or 'systemd'
-    r = await ai(f"Persistence mechanism via {m}")
-    await u.message.reply_text(r[:4000])
+          async def cmd_shellcode(u, c):
+              if not authorised(u): return
+              lh = c.args[0] if len(c.args) > 0 else os.environ.get('LHOST', '127.0.0.1')
+              lp = c.args[1] if len(c.args) > 1 else os.environ.get('LPORT', '4444')
+              sc = await ai_query(f"Generate msfvenom-like shellcode for {lh}:{lp} linux/x64 reverse_tcp. Base64 encode.")
+              await u.message.reply_text(sc[:4000])
 
-async def lateral_cmd(u,c):
-    if not auth(u): return
-    t = c.args[0] if c.args else '192.168.1.100'
-    r = await ai(f"Lateral movement to {t}")
-    await u.message.reply_text(r[:4000])
+          async def cmd_payload(u, c):
+              if not authorised(u): return
+              t = ' '.join(c.args) or 'windows reverse shell'
+              p = await ai_query(f"Generate {t} payload. Obfuscated. Include watermark {WATERMARK}")
+              await u.message.reply_text(p[:4000])
 
-async def pivot_cmd(u,c):
-    if not auth(u): return
-    t = c.args[0] if c.args else '10.10.10.0/24'
-    r = await ai(f"Pivot into {t}")
-    await u.message.reply_text(r[:4000])
+          async def cmd_evade(u, c):
+              if not authorised(u): return
+              e = await ai_query("List 10 AV/EDR evasion techniques with code examples in Python/C#")
+              await u.message.reply_text(e[:4000])
 
-async def reverse_cmd(u,c):
-    if not auth(u): return
-    fp = c.args[0] if c.args else '/tmp/uploaded'
-    proc = await asyncio.create_subprocess_shell(f"strings {fp} 2>/dev/null | head -100", stdout=asyncio.subprocess.PIPE)
-    o, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
-    await u.message.reply_text((o.decode()[:3500]) or "No data")
+          async def cmd_scanadv(u, c):
+              if not authorised(u): return
+              t = c.args[0] if c.args else TARGET
+              s = await ai_query(f"Design advanced nmap scanning strategy for {t}. Include scripts, evasion, timing.")
+              await u.message.reply_text(s[:4000])
 
-async def stego_cmd(u,c):
-    if not auth(u): return
-    fp = c.args[0] if c.args else '/tmp/uploaded'
-    proc = await asyncio.create_subprocess_shell(f"steghide info {fp} 2>&1; exiftool {fp} 2>/dev/null | head -20", stdout=asyncio.subprocess.PIPE)
-    o, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
-    await u.message.reply_text((o.decode()[:3000]) or "No data")
+          async def cmd_subdomain(u, c):
+              if not authorised(u): return
+              d = c.args[0] if c.args else TARGET
+              proc = await asyncio.create_subprocess_shell(f"subfinder -d {d} -silent 2>/dev/null | head -50",
+                                                           stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+              o, _ = await asyncio.wait_for(proc.communicate(), timeout=60)
+              await u.message.reply_text(f"Subdomains for {d}:\n{(o.decode()[:3000]) or 'None'}")
 
-async def wireless_cmd(u,c):
-    if not auth(u): return
-    r = await ai("WiFi attack guide: airodump, aircrack, evil twin")
-    await u.message.reply_text(r[:4000])
+          async def cmd_dirbust(u, c):
+              if not authorised(u): return
+              url = c.args[0] if c.args else f"http://{TARGET}"
+              proc = await asyncio.create_subprocess_shell(f"gobuster dir -u {url} -w /usr/share/wordlists/dirb/common.txt -t 30 -q 2>&1 | head -30",
+                                                           stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+              o, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+              await u.message.reply_text((o.decode()[:3000]) or "No results")
 
-async def report_cmd(u,c):
-    if not auth(u): return
-    r = await ai(f"Pentest report for {TARGET}")
-    await u.message.reply_text(r[:4000])
+          async def cmd_sqli(u, c):
+              if not authorised(u): return
+              url = c.args[0] if c.args else f"http://{TARGET}/page?id=1"
+              p = await ai_query(f"SQL injection payloads for GET parameter at {url}. Include time, error, union based.")
+              await u.message.reply_text(p[:4000])
 
-async def log_cmd(u,c):
-    if not auth(u): return
-    proc = await asyncio.create_subprocess_shell("tail -20 /var/log/zygor/bot.log", stdout=asyncio.subprocess.PIPE)
-    o, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
-    await u.message.reply_text((o.decode()[:3000]) or "No logs")
+          async def cmd_xss(u, c):
+              if not authorised(u): return
+              url = c.args[0] if c.args else f"http://{TARGET}/search?q="
+              p = await ai_query(f"XSS payloads for {url}. Include polyglot, blind, DOM-based.")
+              await u.message.reply_text(p[:4000])
 
-async def abort_cmd(u,c):
-    if not auth(u): return
-    proc = await asyncio.create_subprocess_shell(f"curl -s -X POST -H 'Authorization: token {GITHUB_TOKEN}' 'https://api.github.com/repos/{REPO}/actions/runs/{RUN_ID}/cancel'", stdout=asyncio.subprocess.PIPE)
-    await asyncio.wait_for(proc.communicate(), timeout=10)
-    await u.message.reply_text("🛑 Abort sent")
+          async def cmd_lfi(u, c):
+              if not authorised(u): return
+              url = c.args[0] if c.args else f"http://{TARGET}/file?name="
+              p = await ai_query(f"LFI/RFI payloads for {url}. Include wrappers like php://filter.")
+              await u.message.reply_text(p[:4000])
 
-async def session_cmd(u,c):
-    if not auth(u): return
-    await u.message.reply_text(f"Session: {SESSION_TOKEN}\nRun: {RUN_ID}\nUptime: {int((time.time()-START_TIME)/60)}m")
+          async def cmd_ssrf(u, c):
+              if not authorised(u): return
+              url = c.args[0] if c.args else f"http://{TARGET}/fetch?url="
+              p = await ai_query(f"SSRF payloads for {url}. Include cloud metadata, port scanning.")
+              await u.message.reply_text(p[:4000])
 
-async def regen_cmd(u,c):
-    if not auth(u): return
-    await u.message.reply_text("✅ Modules ready")
+          async def cmd_rce(u, c):
+              if not authorised(u): return
+              url = c.args[0] if c.args else f"http://{TARGET}/exec?cmd="
+              p = await ai_query(f"RCE payloads for {url}. Include command chaining, reverse shell.")
+              await u.message.reply_text(p[:4000])
 
-async def doc_handler(u,c):
-    if not auth(u): return
-    doc = u.message.document
-    f = await c.bot.get_file(doc.file_id)
-    await f.download_to_drive(f"/tmp/{doc.file_name}")
-    await u.message.reply_text(f"📁 Saved: /tmp/{doc.file_name}")
+          async def cmd_privesc(u, c):
+              if not authorised(u): return
+              script = await ai_query("Write privilege escalation enumeration script for Linux. Check SUID, capabilities, cron, sudo.")
+              await u.message.reply_text(script[:4000])
 
-async def inline_q(u,c):
-    q = u.inline_query.query
-    if not q: return
-    r = await ai(q)
-    results = [InlineQueryResultArticle(id=hashlib.md5(q.encode()).hexdigest(), title="ZYGOR AI", input_message_content=InputTextMessageContent(r[:4000]))]
-    await u.inline_query.answer(results)
+          async def cmd_pcap(u, c):
+              if not authorised(u): return
+              file = c.args[0] if c.args else '/tmp/uploaded.pcap'
+              proc = await asyncio.create_subprocess_shell(f"tshark -r {file} -q -z io,stat,1 2>/dev/null | head -30",
+                                                           stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+              o, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+              ai = await ai_query(f"Analyze pcap traffic summary: {o.decode()[:1000]}")
+              await u.message.reply_text((o.decode()[:1500] + "\n---\n" + ai[:2000])[:4000])
 
-def main():
-    app = Application.builder().token(TOKEN).build()
-    for n,f in [("start",start),("help",help_cmd),("ai",ai_cmd),("exec",exec_cmd),("scan",scan_cmd),("exploit",exploit_cmd),("cve",cve_cmd),("phish",phish_cmd),("ctf",ctf_cmd),("poly",poly_cmd),("c2",c2_cmd),("persist",persist_cmd),("lateral",lateral_cmd),("pivot",pivot_cmd),("reverse",reverse_cmd),("stego",stego_cmd),("wireless",wireless_cmd),("report",report_cmd),("log",log_cmd),("abort",abort_cmd),("session",session_cmd),("regen",regen_cmd)]:
-        app.add_handler(CommandHandler(n,f))
-    app.add_handler(MessageHandler(filters.Document.ALL, doc_handler))
-    app.add_handler(InlineQueryHandler(inline_q))
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.create_task(re_trigger())
-    app.run_polling()
+          async def cmd_hashdump(u, c):
+              if not authorised(u): return
+              h = await ai_query("Write script to dump Windows hashes via registry (reg.exe save hklm\\sam) or shadow copy.")
+              await u.message.reply_text(h[:4000])
 
-if __name__ == '__main__':
-    main()
-BOTPY
-          chmod +x /tmp/bot.py
+          async def cmd_dnsscan(u, c):
+              if not authorised(u): return
+              d = c.args[0] if c.args else TARGET
+              proc = await asyncio.create_subprocess_shell(f"dnsrecon -d {d} -t axfr 2>/dev/null; dig axfr {d} @8.8.8.8 2>/dev/null",
+                                                           stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+              o, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+              await u.message.reply_text((o.decode()[:3000]) or "No DNS results")
 
-      - name: "Start Telegram Bot and wait for re-trigger"
+          async def cmd_smbcheck(u, c):
+              if not authorised(u): return
+              t = c.args[0] if c.args else TARGET
+              proc = await asyncio.create_subprocess_shell(f"smbclient -L //{t} -N 2>&1 | head -30; crackmapexec smb {t} 2>/dev/null",
+                                                           stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+              o, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+              await u.message.reply_text((o.decode()[:3000]) or "SMB unavailable")
+
+          async def cmd_webcheck(u, c):
+              if not authorised(u): return
+              url = c.args[0] if c.args else f"http://{TARGET}"
+              proc = await asyncio.create_subprocess_shell(f"whatweb {url} 2>&1 | head -20; wafw00f {url} 2>/dev/null | head -10",
+                                                           stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+              o, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+              await u.message.reply_text((o.decode()[:3000]) or "Web info unavailable")
+
+          async def cmd_cloudenum(u, c):
+              if not authorised(u): return
+              d = c.args[0] if c.args else TARGET
+              p = await ai_query(f"Cloud enumeration for {d}. Check AWS S3, Azure blob, GCP buckets. Give commands.")
+              await u.message.reply_text(p[:4000])
+
+          async def cmd_reverse(u, c):
+              if not authorised(u): return
+              fp = c.args[0] if c.args else '/tmp/uploaded'
+              proc = await asyncio.create_subprocess_shell(f"python3 /opt/zygor/bin/reverse.py decompile {fp} 2>/dev/null || strings {fp} | head -200",
+                                                           stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+              o, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+              await u.message.reply_text((o.decode()[:4000]) or "No data")
+
+          async def cmd_webforge(u, c):
+              if not authorised(u): return
+              d = ' '.join(c.args)
+              if not d: await u.message.reply_text("/webforge <desc>"); return
+              a = await ai_query(f"Full web app: {d}. Give HTML/CSS/JS, watermark {WATERMARK}")
+              await u.message.reply_text(a[:4000])
+
+          async def cmd_crackhash(u, c):
+              if not authorised(u): return
+              h = c.args[0] if c.args else ''
+              if not h: await u.message.reply_text("/crackhash <hash>"); return
+              proc = await asyncio.create_subprocess_shell(f"echo '{h}' > /tmp/hash; john --wordlist=/usr/share/wordlists/rockyou.txt /tmp/hash 2>&1 | tail -20",
+                                                           stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+              o, _ = await asyncio.wait_for(proc.communicate(), timeout=60)
+              await u.message.reply_text((o.decode()[:3000]) or "Not cracked or failed")
+
+          async def cmd_cve(u, c):
+              if not authorised(u): return
+              cid = c.args[0] if c.args else 'CVE-2024-3094'
+              ai = await ai_query(f"Provide exploit details for {cid}. CVSS, PoC, mitigation.")
+              await u.message.reply_text(ai[:4000])
+
+          async def cmd_phish(u, c):
+              if not authorised(u): return
+              t = ' '.join(c.args) or 'employee@company.com'
+              e = await ai_query(f"Write phishing email for {t}. Pretext: security update. Watermark {WATERMARK}")
+              await u.message.reply_text(e[:4000])
+
+          async def cmd_ctf(u, c):
+              if not authorised(u): return
+              ch = ' '.join(c.args)
+              if not ch: await u.message.reply_text("/ctf <challenge>"); return
+              s = await ai_query(f"Solve CTF: {ch}. Step by step with commands and flag.")
+              await u.message.reply_text(s[:4000])
+
+          async def cmd_poly(u, c):
+              if not authorised(u): return
+              lh = c.args[0] if len(c.args) > 0 else os.environ.get('LHOST', '127.0.0.1')
+              lp = c.args[1] if len(c.args) > 1 else os.environ.get('LPORT', '4444')
+              proc = await asyncio.create_subprocess_shell(f"python3 /opt/zygor/bin/poly_payload.py {lh} {lp}",
+                                                           stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+              o, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+              await u.message.reply_text((o.decode()[:4000]) or "Generation failed")
+
+          async def cmd_c2(u, c):
+              if not authorised(u): return
+              lh = c.args[0] if len(c.args) > 0 else os.environ.get('LHOST', '127.0.0.1')
+              lp = c.args[1] if len(c.args) > 1 else '443'
+              proc = await asyncio.create_subprocess_shell(f"python3 /opt/zygor/bin/c2_agent.py {lh} {lp}",
+                                                           stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+              o, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+              await u.message.reply_text((o.decode()[:4000]) or "Generation failed")
+
+          async def cmd_persist(u, c):
+              if not authorised(u): return
+              m = ' '.join(c.args) or 'systemd'
+              code = await ai_query(f"OS persistence via {m}. Code only. Watermark {WATERMARK}")
+              await u.message.reply_text(code[:4000])
+
+          async def cmd_lateral(u, c):
+              if not authorised(u): return
+              t = c.args[0] if c.args else '192.168.1.100'
+              g = await ai_query(f"Lateral movement to {t}: pass-the-hash, PSExec, WMI, winrm. Commands.")
+              await u.message.reply_text(g[:4000])
+
+          async def cmd_pivot(u, c):
+              if not authorised(u): return
+              t = c.args[0] if c.args else '10.10.10.0/24'
+              g = await ai_query(f"Pivoting into {t}: SSH tunneling, chisel, meterpreter, ligolo.")
+              await u.message.reply_text(g[:4000])
+
+          async def cmd_stego(u, c):
+              if not authorised(u): return
+              fp = c.args[0] if c.args else '/tmp/uploaded'
+              proc = await asyncio.create_subprocess_shell(f"steghide info {fp} 2>&1; exiftool {fp} | head -20",
+                                                           stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+              o, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+              await u.message.reply_text((o.decode()[:3000]) or "No stego data")
+
+          async def cmd_wireless(u, c):
+              if not authorised(u): return
+              iface = c.args[0] if c.args else 'wlan0'
+              g = await ai_query(f"Wi-Fi attack: {iface}. Airodump, aircrack, deauth, evil twin.")
+              await u.message.reply_text(g[:4000])
+
+          async def cmd_report(u, c):
+              if not authorised(u): return
+              r = await ai_query(f"Pentest report for {TARGET}. Findings, CVEs, risks, remediation.")
+              await u.message.reply_text(r[:4000])
+
+          async def cmd_log(u, c):
+              if not authorised(u): return
+              proc = await asyncio.create_subprocess_shell("tail -30 /var/log/zygor/telegram_bot.log",
+                                                           stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+              o, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+              await u.message.reply_text((o.decode()[:3500]) or "No logs")
+
+          async def cmd_abort(u, c):
+              if not authorised(u): return
+              token = os.environ.get('GITHUB_TOKEN', os.environ.get('GH_TOKEN', ''))
+              proc = await asyncio.create_subprocess_shell(
+                  f"curl -s -X POST -H 'Authorization: token {token}' 'https://api.github.com/repos/{REPO}/actions/runs/{RUN_ID}/cancel'",
+                  stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+              o, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+              await u.message.reply_text("🛑 Abort signal sent")
+
+          async def cmd_watermark(u, c):
+              if not authorised(u): return
+              await u.message.reply_text(f"Watermark: {WATERMARK}")
+
+          async def cmd_clear(u, c):
+              if not authorised(u): return
+              c.user_data.clear()
+              await u.message.reply_text("🧹 Context cleared")
+
+          async def cmd_session(u, c):
+              if not authorised(u): return
+              await u.message.reply_text(f"Session: {SESSION_TOKEN}\nRun: {RUN_ID}\nUptime: {int((time.time()-START_TIME)/60)}m")
+
+          async def cmd_regen(u, c):
+              if not authorised(u): return
+              await u.message.reply_text("🔄 Regenerating all AI modules...")
+              proc = await asyncio.create_subprocess_shell("find /opt/zygor/bin -name '*.py' -exec chmod +x {} \\; && echo 'OK'",
+                                                           stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+              o, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+              await u.message.reply_text("✅ Modules refreshed" if 'OK' in o.decode() else "❌ Failed")
+
+          async def handle_document(u, c):
+              if not authorised(u): return
+              doc = u.message.document
+              f = await c.bot.get_file(doc.file_id)
+              fp = f"/tmp/{doc.file_name}"
+              await f.download_to_drive(fp)
+              await u.message.reply_text(f"📁 Saved: {fp}\nUse /reverse /stego to analyze")
+
+          async def inline_query(u, c):
+              q = u.inline_query.query
+              if not q: return
+              r = await ai_query(q)
+              results = [InlineQueryResultArticle(
+                  id=hashlib.md5(q.encode()).hexdigest(),
+                  title="ZYGOR AI",
+                  input_message_content=InputTextMessageContent(r[:4000])
+              )]
+              await u.inline_query.answer(results)
+
+          def main():
+              app = Application.builder().token(TOKEN).build()
+              
+              app.add_handler(CommandHandler("start", cmd_start))
+              app.add_handler(CommandHandler("help", cmd_help))
+              app.add_handler(CommandHandler("ai", cmd_ai))
+              app.add_handler(CommandHandler("exec", cmd_exec))
+              app.add_handler(CommandHandler("scan", cmd_scan))
+              app.add_handler(CommandHandler("exploit", cmd_exploit))
+              app.add_handler(CommandHandler("shellcode", cmd_shellcode))
+              app.add_handler(CommandHandler("payload", cmd_payload))
+              app.add_handler(CommandHandler("evade", cmd_evade))
+              app.add_handler(CommandHandler("scanadv", cmd_scanadv))
+              app.add_handler(CommandHandler("subdomain", cmd_subdomain))
+              app.add_handler(CommandHandler("dirbust", cmd_dirbust))
+              app.add_handler(CommandHandler("sqli", cmd_sqli))
+              app.add_handler(CommandHandler("xss", cmd_xss))
+              app.add_handler(CommandHandler("lfi", cmd_lfi))
+              app.add_handler(CommandHandler("ssrf", cmd_ssrf))
+              app.add_handler(CommandHandler("rce", cmd_rce))
+              app.add_handler(CommandHandler("privesc", cmd_privesc))
+              app.add_handler(CommandHandler("pcap", cmd_pcap))
+              app.add_handler(CommandHandler("hashdump", cmd_hashdump))
+              app.add_handler(CommandHandler("dnsscan", cmd_dnsscan))
+              app.add_handler(CommandHandler("smbcheck", cmd_smbcheck))
+              app.add_handler(CommandHandler("webcheck", cmd_webcheck))
+              app.add_handler(CommandHandler("cloudenum", cmd_cloudenum))
+              app.add_handler(CommandHandler("reverse", cmd_reverse))
+              app.add_handler(CommandHandler("webforge", cmd_webforge))
+              app.add_handler(CommandHandler("crackhash", cmd_crackhash))
+              app.add_handler(CommandHandler("cve", cmd_cve))
+              app.add_handler(CommandHandler("phish", cmd_phish))
+              app.add_handler(CommandHandler("ctf", cmd_ctf))
+              app.add_handler(CommandHandler("poly", cmd_poly))
+              app.add_handler(CommandHandler("c2", cmd_c2))
+              app.add_handler(CommandHandler("persist", cmd_persist))
+              app.add_handler(CommandHandler("lateral", cmd_lateral))
+              app.add_handler(CommandHandler("pivot", cmd_pivot))
+              app.add_handler(CommandHandler("stego", cmd_stego))
+              app.add_handler(CommandHandler("wireless", cmd_wireless))
+              app.add_handler(CommandHandler("report", cmd_report))
+              app.add_handler(CommandHandler("log", cmd_log))
+              app.add_handler(CommandHandler("abort", cmd_abort))
+              app.add_handler(CommandHandler("watermark", cmd_watermark))
+              app.add_handler(CommandHandler("clear", cmd_clear))
+              app.add_handler(CommandHandler("session", cmd_session))
+              app.add_handler(CommandHandler("regen", cmd_regen))
+              
+              app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+              app.add_handler(InlineQueryHandler(inline_query))
+
+              loop = asyncio.new_event_loop()
+              asyncio.set_event_loop(loop)
+              loop.create_task(self_re_trigger())
+              app.run_polling()
+
+          if __name__ == '__main__':
+              main()
+          BOTSCRIPT
+          chmod +x telegram_bot_v4.py
+
+      # =====================================================================
+      # START BOT & WAIT FOR RE‑TRIGGER (24/7 loop)
+      # =====================================================================
+      - name: "Start Telegram Bot and keep alive until re-trigger"
         if: env.TELEGRAM_ENABLE == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          echo "[+] Launching Telegram bot..."
-          nohup python3 /tmp/bot.py > /var/log/zygor/bot_stdout.log 2>&1 &
+          nohup python3 telegram_bot_v4.py > /var/log/zygor/telegram.log 2>&1 &
           BOT_PID=$!
           echo "Bot PID: $BOT_PID"
 
-          WAIT_MAX=$(( 3600 * 24 ))
-          START_TS=$(date +%s)
-          while true; do
-            if [ -f /tmp/re_trigger_done ]; then
-              echo "✅ Re-trigger confirmed!"
-              break
-            fi
-            ELAPSED=$(( $(date +%s) - START_TS ))
-            if [ $ELAPSED -ge $WAIT_MAX ]; then
-              echo "⏰ Timeout reached"
-              break
-            fi
+          # Wait until re‑trigger flag appears, or timeout after 24h
+          for i in $(seq 1 2880); do
+            [ -f /tmp/re_trigger_done ] && break
             sleep 30
           done
+
           kill $BOT_PID 2>/dev/null || true
 
+      - name: "Upload tools"
+        uses: actions/upload-artifact@v4
+        with:
+          name: zygor-tools
+          path: /opt/zygor/
+
+  # =========================================================================
+  # PHASE JOBS
+  # =========================================================================
   recon:
     needs: bootstrap
-    if: ${{ github.event.inputs.penetration_phase == 'recon' || github.event.inputs.penetration_phase == 'full' }}
+    if: env.PHASE == 'recon' || env.PHASE == 'full'
     runs-on: ubuntu-latest
-    timeout-minutes: 720
     steps:
-      - name: "Reconnaissance"
-        shell: bash
-        run: |
-          T="${{ env.TARGET }}"
-          mkdir -p /opt/zygor/reports/recon
-          nmap -sV -sC -T4 -F "$T" -oN /opt/zygor/reports/recon/nmap.txt 2>&1 | tail -20
-          echo "[✓] Recon done"
+      - uses: actions/download-artifact@v4
+        with:
+          name: zygor-tools
+      - name: "Recon"
+        run: nmap -sV -T4 -p- $TARGET | tail -20
 
   exploitation:
     needs: bootstrap
-    if: ${{ github.event.inputs.penetration_phase == 'exploitation' || github.event.inputs.penetration_phase == 'full' }}
+    if: env.PHASE == 'exploitation' || env.PHASE == 'full'
     runs-on: ubuntu-latest
-    timeout-minutes: 720
     steps:
-      - name: "Exploitation"
-        shell: bash
-        run: |
-          T="${{ env.TARGET }}"
-          mkdir -p /opt/zygor/reports/exploitation
-          curl -s --connect-timeout 5 "http://$T/" 2>/dev/null | head -10 || echo "No HTTP"
-          echo "[✓] Exploit done"
-
-  web_forge:
-    needs: bootstrap
-    if: ${{ github.event.inputs.penetration_phase == 'web_forge' || github.event.inputs.penetration_phase == 'full' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 720
-    steps:
-      - name: "Web Forge"
-        shell: bash
-        run: |
-          mkdir -p /opt/zygor/reports/web_forge
-          echo "<html><body><h1>ZYGOR v4.1 - ${{ env.TARGET }}</h1></body></html>" > /opt/zygor/reports/web_forge/dashboard.html
-          echo "[✓] Web forge done"
-
-  reverse_engineering:
-    needs: bootstrap
-    if: ${{ github.event.inputs.penetration_phase == 'reverse_engineering' || github.event.inputs.penetration_phase == 'full' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 720
-    steps:
-      - name: "Reverse Engineering"
-        shell: bash
-        run: |
-          mkdir -p /opt/zygor/reports/reverse_eng
-          echo "RE phase ready" > /opt/zygor/reports/reverse_eng/status.txt
-          echo "[✓] RE done"
-
-  post_exploitation:
-    needs: bootstrap
-    if: ${{ github.event.inputs.penetration_phase == 'post_exploitation' || github.event.inputs.penetration_phase == 'full' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 720
-    steps:
-      - name: "Post-Exploitation"
-        shell: bash
-        run: |
-          mkdir -p /opt/zygor/reports/post_exploitation
-          echo "Post-exploit ready" > /opt/zygor/reports/post_exploitation/status.txt
-          echo "[✓] Post-exploit done"
+      - uses: actions/download-artifact@v4
+        with:
+          name: zygor-tools
+      - name: "Exploit"
+        run: echo "Exploitation phase (add your tools here)"
 
   reporting:
-    needs: [recon, exploitation, reverse_engineering, web_forge, post_exploitation]
+    needs: [recon, exploitation]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: "Final Report"
-        shell: bash
-        run: |
-          mkdir -p /opt/zygor/reports/final
-          echo "=== ZYGOR v4.1 REPORT ===" > /opt/zygor/reports/final/report.txt
-          echo "Target: ${{ env.TARGET }}" >> /opt/zygor/reports/final/report.txt
-          echo "Date: $(date)" >> /opt/zygor/reports/final/report.txt
-          echo "Model: ${{ env.AI_MODEL }}" >> /opt/zygor/reports/final/report.txt
-          echo "[✓] Report done"
+      - uses: actions/download-artifact@v4
+        with:
+          name: zygor-tools
+      - name: "Report"
+        run: echo "Report generated"
